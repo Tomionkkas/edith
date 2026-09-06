@@ -418,7 +418,15 @@ class ChipsAndCaptions(unittest.TestCase):
         out = R.caption("i was there.", painted, 40)
         self.assertEqual(len(theme.strip(out)), 40)
         self.assertNotEqual(out, theme.strip(out))     # colour really applied
-        self.assertIn("48;2;242;201;76", out)          # the BACKGROUND escape
+        # Pinned to 24-bit: the escape's exact form now depends on the
+        # terminal, and this test is about caption painting a background
+        # at all, not about which depth the machine running it reports.
+        saved, theme.TRUECOLOR = theme.TRUECOLOR, True
+        try:
+            out = R.caption("i was there.", painted, 40)
+            self.assertIn("48;2;242;201;76", out)      # the BACKGROUND escape
+        finally:
+            theme.TRUECOLOR = saved
 
     def test_a_half_defined_caption_pair_paints_nothing(self):
         # A foreground escape with no background behind it is the failure

@@ -22,6 +22,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -194,20 +195,67 @@ ALIASES = {
 
 # ------------------------------------------------------------------ colour
 
+# The xterm-256 colour cube's six levels per channel, and the 24 greys above
+# it. Indices 0-15 are deliberately not candidates: they are whatever the
+# user's profile has set them to, so matching against them would pick a colour
+# we cannot predict.
+_CUBE_LEVELS = (0, 95, 135, 175, 215, 255)
+
+
+@lru_cache(maxsize=512)
+def _to_256(r: int, g: int, b: int) -> int:
+    """The nearest xterm-256 index to an exact colour.
+
+    Considers the 6x6x6 cube and the grey ramp and takes whichever is closer -
+    the greys matter, because `faint` and `dim` are near-neutral and the cube's
+    nearest neighbour to a grey can be visibly tinted.
+    """
+    ci = tuple(min(range(6), key=lambda i: abs(_CUBE_LEVELS[i] - v))
+               for v in (r, g, b))
+    cube_d = sum((v - _CUBE_LEVELS[i]) ** 2 for v, i in zip((r, g, b), ci))
+
+    gi = min(range(24), key=lambda i: abs(8 + 10 * i - (r + g + b) / 3))
+    grey = 8 + 10 * gi
+    grey_d = sum((v - grey) ** 2 for v in (r, g, b))
+
+    if grey_d < cube_d:
+        return 232 + gi
+    return 16 + 36 * ci[0] + 6 * ci[1] + ci[2]
+
+
+def _channels(colour: str) -> tuple:
+    h = colour.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _escape(colour: str, layer: int) -> str:
+    """One SGR escape, 24-bit or 256-colour depending on the terminal.
+
+    A terminal that does not understand `38;2;r;g;b` does not ignore it: it
+    drops the `38;2` and reads what is left as separate legacy codes, where
+    40-47 mean BACKGROUND. Terminal.app renders the whole palette that way -
+    `#e62429` ends in 41, red background, and `#2f63e0` starts with 47, white
+    background - so the wordmark filled solid and the rules became bars. The
+    256-colour form it does understand, so we send that instead.
+    """
+    r, g, b = _channels(colour)
+    if TRUECOLOR:
+        return f"\033[{layer};2;{r};{g};{b}m"
+    return f"\033[{layer};5;{_to_256(r, g, b)}m"
+
+
 def rgb(colour: str) -> str:
-    """A #rrggbb string as a 24-bit ANSI escape; "" for no colour."""
+    """A #rrggbb string as an ANSI foreground escape; "" for no colour."""
     if not colour:
         return ""
-    h = colour.lstrip("#")
-    return f"\033[38;2;{int(h[0:2], 16)};{int(h[2:4], 16)};{int(h[4:6], 16)}m"
+    return _escape(colour, 38)
 
 
 def bg(colour: str) -> str:
-    """A #rrggbb string as a 24-bit ANSI BACKGROUND escape."""
+    """A #rrggbb string as an ANSI BACKGROUND escape."""
     if not colour or not COLOUR_ENABLED:
         return ""
-    h = colour.lstrip("#")
-    return f"\033[48;2;{int(h[0:2], 16)};{int(h[2:4], 16)};{int(h[4:6], 16)}m"
+    return _escape(colour, 48)
 
 
 def paint(text: str, colour: str, bold: bool = False) -> str:
@@ -225,6 +273,32 @@ def strip(text: str) -> str:
 
 
 COLOUR_ENABLED = True
+
+
+def detect_truecolor() -> bool:
+    """Whether this terminal can be sent 24-bit colour.
+
+    An allowlist, not a denylist: guessing wrong the optimistic way is what
+    produced the filled blocks, and 256-colour on a terminal that could have
+    done better is a slightly different red nobody will notice.
+
+    EDITH_COLOR=truecolor|256 forces it either way, for a terminal that
+    reports nothing useful.
+    """
+    forced = os.environ.get("EDITH_COLOR", "").lower()
+    if forced in ("truecolor", "24bit", "24"):
+        return True
+    if forced in ("256", "8bit"):
+        return False
+    if os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit"):
+        return True
+    # Windows has been 24-bit since conhost gained VT processing in 1703, and
+    # Windows Terminal sets no COLORTERM - an allowlist alone would downgrade
+    # the one platform where this rendered correctly to begin with.
+    return sys.platform == "win32"
+
+
+TRUECOLOR = detect_truecolor()
 
 
 def use_utf8() -> None:
@@ -249,7 +323,8 @@ def enable(stream=None) -> bool:
     everywhere else arrives full of `[38;2;` on the user's own machine.
     NO_COLOR is honoured because it costs one line.
     """
-    global COLOUR_ENABLED
+    global COLOUR_ENABLED, TRUECOLOR
+    TRUECOLOR = detect_truecolor()
     use_utf8()
     stream = stream or sys.stdout
     if os.environ.get("NO_COLOR") or not getattr(stream, "isatty", lambda: False)():
