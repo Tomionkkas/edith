@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Everything EDITH needs that is not in git: weights, corpus, index.
 
-Imported by install.py and by infer/terminal.py's first-run prompt. One
-module on purpose - two fetchers would eventually name two different repos.
+Imported by infer/terminal.py's first-run prompt: Terminal.boot() calls
+fetch_all() when something is missing. One module on purpose - a second
+fetcher would eventually name a different repo.
 
 Nothing here writes a .pt. The published format is safetensors precisely
 because torch.load executes whatever is inside the file it opens.
@@ -21,7 +22,8 @@ MODEL_REPO = "Tomionkkas/edith-250m"
 CORPUS_REPO = "Tomionkkas/edith-marvel-corpus"
 
 # The data directory, loaded by file path like bootstrap.py itself is - see
-# install.py. Constants only, so re-executing it per module costs nothing.
+# infer/terminal.py's load of this module. Constants only, so re-executing
+# it per module costs nothing.
 _paths_spec = importlib.util.spec_from_file_location("edith_paths", ROOT / "paths.py")
 paths = importlib.util.module_from_spec(_paths_spec)
 _paths_spec.loader.exec_module(paths)
@@ -57,7 +59,7 @@ CORPUS_FILES = (
 # Imported lazily elsewhere; bound at module level so tests can replace it.
 try:
     from huggingface_hub import hf_hub_download, snapshot_download
-except ImportError:                       # before install.py has run
+except ImportError:                # before huggingface_hub is installed
     hf_hub_download = snapshot_download = None
 
 
@@ -65,10 +67,11 @@ def _ensure_hub() -> None:
     """Bind the hub functions on first use.
 
     They are imported at module level inside a try/except so bootstrap.py can
-    be imported before install.py has installed anything - but install.py then
-    installs huggingface_hub and calls fetch_all() in the SAME process, where
-    the names are still None. Installing a package does not rebind a name that
-    was already resolved, so resolve it again here, on first use.
+    be imported before huggingface_hub is installed - a bare clone that has
+    not set up its dependencies yet. If something installs the package
+    afterward in the SAME process (as the test suite simulates), the names
+    are still None: installing a package does not rebind a name that was
+    already resolved, so resolve it again here, on first use.
 
     Only rebinds when a name is still None, so a caller (or test) that has
     already replaced hf_hub_download/snapshot_download with its own callable
@@ -81,7 +84,8 @@ def _ensure_hub() -> None:
         except ImportError as e:
             raise ImportError(
                 "huggingface_hub is required to fetch EDITH's weights/corpus "
-                "but is not installed. Run install.py again, or "
+                "but is not installed. Run `uv tool install --force "
+                "git+https://github.com/Tomionkkas/edith`, or "
                 "`py -m pip install huggingface_hub` yourself."
             ) from e
         hf_hub_download, snapshot_download = _dl, _snap
@@ -206,10 +210,10 @@ _migrated = False
 def migrate_legacy(log=lambda *a: None) -> list:
     """Move a pre-data-dir clone's artefacts into the data directory.
 
-    Called explicitly by install.py and by Terminal.boot(), never from
-    missing() or download_mb(): those are pure queries that tests monkeypatch
-    the constants of, and a query with a filesystem move inside it would run
-    against a real clone during pytest.
+    Called explicitly by Terminal.boot()'s first-run prompt and by
+    fetch_all(), never from missing() or download_mb(): those are pure
+    queries that tests monkeypatch the constants of, and a query with a
+    filesystem move inside it would run against a real clone during pytest.
 
     Only ever moves what the data directory does not already have, so it
     cannot overwrite a newer download with an older one, and it is a handful

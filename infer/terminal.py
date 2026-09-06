@@ -87,15 +87,13 @@ DECLINED = """
 No problem. When you want them:
 
     edith                  run it again and say yes
-    python3 install.py     from a clone, with more output
 """
 
 FETCH_FAILED = """
 That did not finish: {error}
 
 What already downloaded is kept - running EDITH again resumes rather than
-starting over. From a clone, python3 install.py does the same job with more
-output along the way.
+starting over.
 """
 
 STILL_MISSING = """
@@ -103,8 +101,8 @@ Still missing after fetching:
 
   {missing}
 
-Something did not arrive. Try again, or run python3 install.py from a clone
-for more detail.
+Something did not arrive. Running edith again retries. Deleting the data
+directory (~/.edith, or wherever EDITH_HOME points) forces a clean re-fetch.
 """
 
 

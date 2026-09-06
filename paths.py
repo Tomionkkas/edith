@@ -14,8 +14,8 @@ EDITH_HOME overrides it, for a machine whose home is small or on a network
 share.
 
 Loaded by file path, like every other cross-directory import in this repo -
-see install.py's load of bootstrap.py. Re-executing it costs nothing: it is
-constants and no side effects.
+see infer/terminal.py's load of bootstrap.py. Re-executing it costs nothing:
+it is constants and no side effects.
 """
 from __future__ import annotations
 
