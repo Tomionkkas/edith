@@ -1,5 +1,7 @@
 # EDITH
 
+![EDITH](docs/banner.png)
+
 A 250M-parameter GPT, trained from scratch on a Marvel corpus, wrapped in a
 retrieval system, answering questions in a terminal.
 
@@ -14,12 +16,6 @@ small model filling the gaps - the honest description is also the more
 interesting one.
 
 ## What it looks like
-
-![EDITH: boot, a question answered from the record, and a theme change](docs/edith.gif)
-
-Boot, one question, `/theme moon-knight`, one more. A theme changes the
-colour, the emblem, the rule, the retrieval verb and the speaker's name -
-never an answer.
 
 ```
 even dead i'm the hero · 250M · 202,171 records indexed
@@ -46,7 +42,13 @@ even dead i'm the hero · 250M · 202,171 records indexed
 
 That answer involved no model at all. The footer says so: `from the record`,
 2 ms, one source. In colour, with one of six character themes, it looks
-considerably better than a code block can show.
+considerably better than a code block can show:
+
+![EDITH: boot, a question answered from the record, and a theme change](docs/edith.gif)
+
+Boot, `who is curtis connors`, `/theme moon-knight`, `who is marc spector`.
+A theme changes the colour, the emblem, the rule, the retrieval verb and the
+speaker's name - never an answer.
 
 ## Install
 
