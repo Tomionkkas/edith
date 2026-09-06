@@ -52,17 +52,19 @@ speaker's name - never an answer.
 
 ## Install
 
-EDITH installs with [uv]. If you do not already have it:
+EDITH installs with [uv]. If you do not already have it, on macOS or Linux:
 
 ```bash
-# macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-# Windows
+or on Windows:
+
+```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Then:
+Then, on any of them:
 
 ```bash
 uv tool install git+https://github.com/Tomionkkas/edith
