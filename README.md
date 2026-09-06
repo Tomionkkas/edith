@@ -52,6 +52,18 @@ speaker's name - never an answer.
 
 ## Install
 
+EDITH installs with [uv]. If you do not already have it:
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Then:
+
 ```bash
 uv tool install git+https://github.com/Tomionkkas/edith
 edith
