@@ -83,9 +83,26 @@ To work on EDITH rather than use it, clone instead:
 ```bash
 git clone https://github.com/Tomionkkas/edith
 cd edith
-py install.py            # Windows
-python3 install.py       # macOS / Linux
+uv venv
+uv pip install .
 ```
+
+That puts the dependencies and the `edith` command in `.venv`. To run the
+code you are editing rather than the installed copy:
+
+```bash
+uv run --no-project python infer/terminal.py
+```
+
+The first run offers to fetch the weights and corpus the same way, into the
+same `~/.edith`.
+
+`--no-project` is not optional, and neither `uv run` without it nor
+`uv pip install -e .` will work. Both try an editable install, and hatchling
+refuses one here: the wheel remaps `infer` to `_edith/infer`, and a `sources`
+rewrite that changes a prefix rather than removing it is unsupported in dev
+mode. Nothing needs it - every module is loaded by file path, so running the
+clone is already running the code you changed.
 
 [uv]: https://docs.astral.sh/uv/
 
