@@ -198,15 +198,15 @@ class Boot(unittest.TestCase):
     def test_a_missing_checkpoint_explains_itself(self):
         """Someone who has just cloned this needs an instruction, not a
         traceback from torch.load. It used to say 'copy it from a machine
-        that has it'; now it offers to fetch, and a non-TTY gets the
-        install command instead of a prompt it cannot answer."""
+        that has it'; now it offers to fetch, and a non-TTY gets the retry
+        instruction instead of a prompt it cannot answer."""
         term = T.Terminal("plain", ckpt=ROOT / "checkpoints" / "nope.pt")
         out = io.StringIO()
         with redirect_stdout(out):
             ok = term.boot()
         self.assertFalse(ok)
         self.assertIn("nope.pt", out.getvalue())
-        self.assertIn("install.py", out.getvalue())
+        self.assertIn("run it again", out.getvalue())
 
     def test_main_returns_nonzero_when_it_cannot_start(self):
         out = io.StringIO()
@@ -294,7 +294,7 @@ class FirstRun(unittest.TestCase):
                 ok = self.term.offer_bootstrap()
         self.assertFalse(ok)
         self.assertEqual(self.fetched, [])
-        self.assertIn("install.py", out.getvalue())
+        self.assertIn("run it again", out.getvalue())
 
     def test_a_failed_fetch_explains_itself_and_stops(self):
         """FIX ROUND 1: fetch_all() used to be called unwrapped, so a
@@ -313,7 +313,7 @@ class FirstRun(unittest.TestCase):
                 ok = self.term.offer_bootstrap()
         self.assertFalse(ok)
         self.assertIn("connection reset by peer", out.getvalue())
-        self.assertIn("install.py", out.getvalue())
+        self.assertIn("running EDITH again resumes", out.getvalue())
 
     def test_a_fetch_that_leaves_something_missing_is_reported_not_trusted(self):
         """FIX ROUND 1 (reviewer finding): fetch_all() can return normally
@@ -341,7 +341,7 @@ class FirstRun(unittest.TestCase):
         ok, shown = self.run_offer(answer="n")
         self.assertFalse(ok)
         self.assertEqual(self.fetched, [])
-        self.assertIn("install.py", shown)
+        self.assertIn("run it again", shown)
 
     def test_a_non_tty_is_never_prompted(self):
         """run_cases.py drives this as a subprocess. input() on a closed stdin
@@ -356,7 +356,7 @@ class FirstRun(unittest.TestCase):
             with unittest.mock.patch("builtins.input", explode):
                 ok = self.term.offer_bootstrap()
         self.assertFalse(ok)
-        self.assertIn("install.py", out.getvalue())
+        self.assertIn("run it again", out.getvalue())
 
     def test_nothing_missing_asks_nothing(self):
         ok, shown = self.run_offer(gone=[])

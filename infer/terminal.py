@@ -23,8 +23,15 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG = Path.home() / ".edith" / "config.json"
-CKPT = ROOT / "checkpoints" / "model.safetensors"
+# The data directory, loaded by file path like bootstrap.py itself is - see
+# bootstrap.py. Constants only, so re-executing it per module costs nothing.
+_paths_spec = importlib.util.spec_from_file_location("edith_paths", ROOT / "paths.py")
+paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(paths)
+
+CONFIG = paths.CONFIG
+CKPT = paths.WEIGHTS
+# The tokenizer is committed to git, so it stays with the code.
 TOKENIZER = ROOT / "tokenizer" / "marvel_bpe_50257.model"
 
 
@@ -79,16 +86,14 @@ you already have, in about 30 seconds.
 DECLINED = """
 No problem. When you want them:
 
-    py install.py          (Windows)
-    python3 install.py     (macOS / Linux)
+    edith                  run it again and say yes
 """
 
 FETCH_FAILED = """
 That did not finish: {error}
 
 What already downloaded is kept - running EDITH again resumes rather than
-starting over. py install.py does the same job with more output along the
-way.
+starting over.
 """
 
 STILL_MISSING = """
@@ -96,7 +101,8 @@ Still missing after fetching:
 
   {missing}
 
-Something did not arrive. Try again, or py install.py for more detail.
+Something did not arrive. Running edith again retries. Deleting the data
+directory (~/.edith, or wherever EDITH_HOME points) forces a clean re-fetch.
 """
 
 
@@ -212,6 +218,10 @@ class Terminal:
 
         Returns True when EDITH can carry on.
         """
+        # A clone from before the data directory existed has the artefacts
+        # beside the code. Move them in before deciding anything is missing,
+        # or a `git pull` reads as an 800 MB re-download.
+        bootstrap.migrate_legacy()
         gone = bootstrap.missing(self.ckpt)
         if not gone:
             return True

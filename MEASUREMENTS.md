@@ -55,7 +55,7 @@ comparable to each other and to prior recordings.
 | stage 2 (`stage2_edith.pt`) | 6,764 | 32.72 | 12.24 |
 | stage 3 (`stage3_edith.pt`) | 2,500 | 38.22 | 18.59 |
 
-Measured twice, on CPU and on an RTX 4090, because a first CPU-only run
+Measured twice, on CPU and on a local RTX 4060, because a first CPU-only run
 raised a question about device sensitivity. The two agree to within 0.01 on
 all four figures, so the table above is simply what this script prints. GPU
 raw output:

@@ -18,7 +18,13 @@ def _load(name):
     return m
 
 
-WIKI_TIER = HERE.parent / "curated" / "wiki_marvel.txt"
+# The data directory, loaded by file path like bootstrap.py itself is - see
+# bootstrap.py. Constants only, so re-executing it per module costs nothing.
+_paths_spec = importlib.util.spec_from_file_location("edith_paths", HERE.parent / "paths.py")
+paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(paths)
+
+WIKI_TIER = paths.CORPUS / "wiki_marvel.txt"
 
 
 def notable(resolve, search):

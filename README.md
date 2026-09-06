@@ -1,5 +1,7 @@
 # EDITH
 
+![EDITH](docs/banner.png)
+
 A 250M-parameter GPT, trained from scratch on a Marvel corpus, wrapped in a
 retrieval system, answering questions in a terminal.
 
@@ -40,32 +42,90 @@ even dead i'm the hero · 250M · 202,171 records indexed
 
 That answer involved no model at all. The footer says so: `from the record`,
 2 ms, one source. In colour, with one of six character themes, it looks
-considerably better than a code block can show.
+considerably better than a code block can show:
+
+![EDITH: boot, a question answered from the record, and a theme change](docs/edith.gif)
+
+Boot, `who is curtis connors`, `/theme moon-knight`, `who is marc spector`.
+A theme changes the colour, the emblem, the rule, the retrieval verb and the
+speaker's name - never an answer.
 
 ## Install
+
+EDITH installs with [uv]. If you do not already have it, on macOS or Linux:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+or on Windows:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Then, on any of them:
+
+```bash
+uv tool install git+https://github.com/Tomionkkas/edith
+edith
+```
+
+Identical on Windows, macOS and Linux. [uv] brings its own Python, so there
+is no question of which `python3` is first on your PATH - the launcher it
+writes has the right interpreter baked into it, and on Windows it is an
+`edith.exe`.
+
+The first `edith` asks before it downloads anything: the fp16 weights
+(508 MB) and the corpus (296 MB) from Hugging Face, ~804 MB together, then
+it rebuilds the retrieval index locally in about 30 seconds. The index is
+never downloaded - it is a pickle, and unpickling executes arbitrary code,
+so it is cheaper and safer to rebuild it.
+
+EDITH runs on the CPU. That is the default and, for most of what it does,
+the whole story: an answer composed from a retrieved record never reaches
+the model at all and lands in a few milliseconds. Only the questions no
+field can answer are generated, and those take a couple of seconds. If you
+have an NVIDIA card and want them faster, add `--torch-backend=auto` to the
+install command above and uv will fetch a CUDA build instead.
+
+All of that lands in `~/.edith` (`C:\Users\you\.edith` on Windows) - one
+directory, one thing to delete. `EDITH_HOME` moves it.
+
+To work on EDITH rather than use it, clone instead:
 
 ```bash
 git clone https://github.com/Tomionkkas/edith
 cd edith
-py install.py            # Windows
-python3 install.py       # macOS / Linux
+uv venv
+uv pip install .
 ```
 
-Fetches the fp16 weights (508 MB) and the corpus (296 MB) from Hugging
-Face, ~804 MB total, then rebuilds the retrieval index locally in about
-30 seconds (the index itself is never downloaded - it is a pickle, and
-unpickling executes arbitrary code, so it is cheaper and safer to rebuild
-it). No GPU is required: PyTorch installs the CPU wheel unless it detects
-an NVIDIA card, and most answers never reach the model regardless of which
-wheel you have.
+That puts the dependencies and the `edith` command in `.venv`. To run the
+code you are editing rather than the installed copy:
+
+```bash
+uv run --no-project python infer/terminal.py
+```
+
+The first run offers to fetch the weights and corpus the same way, into the
+same `~/.edith`.
+
+`--no-project` is not optional, and neither `uv run` without it nor
+`uv pip install -e .` will work. Both try an editable install, and hatchling
+refuses one here: the wheel remaps `infer` to `_edith/infer`, and a `sources`
+rewrite that changes a prefix rather than removing it is unsupported in dev
+mode. Nothing needs it - every module is loaded by file path, so running the
+clone is already running the code you changed.
+
+[uv]: https://docs.astral.sh/uv/
 
 ## Use
 
 ```bash
-.\edith                        # PowerShell
-./edith                        # macOS / Linux
-edith                          # cmd.exe, via edith.cmd
-.\edith --ask "who is thor"    # one question, then exit
+edith                          # anywhere
+edith --ask "who is thor"      # one question, then exit
+edith --theme hulk             # start in a given skin
 ```
 
 Inside the terminal: type a question. `/theme [name]` switches the skin
@@ -74,6 +134,11 @@ When a question is genuinely ambiguous - eighteen different records are
 headlined exactly "Spider-Man" - EDITH offers a picker instead of guessing;
 arrow keys move it, Enter chooses, a bare number also works. `/help` lists
 the rest (`/sources on|off`, `/history`, `/forget`, `/quit`).
+
+Colour follows the terminal: 24-bit where it is supported, and the
+256-colour palette everywhere else, which is what macOS Terminal.app gets.
+`EDITH_COLOR=truecolor|256` forces it, for a terminal that reports neither
+honestly. `NO_COLOR` turns it off entirely.
 
 ## How it works
 
@@ -177,8 +242,10 @@ commands in `MEASUREMENTS.md`:
 | `release/` | safetensors conversion, the fp16/fp32 comparison, the export tool that built this tree |
 | `tokenizer/` | `marvel_bpe_50257`, the trained BPE model in use |
 
-`checkpoints/`, `curated/`, and `retrieve/*.pkl` are not in this repo - they
-are fetched or built by `install.py` (see `bootstrap.py`).
+The weights, the corpus and the two indexes are not in this repo and never
+land in it: they are fetched or built into `~/.edith` on first run (see
+`paths.py` and `bootstrap.py`). A clone from before that was true keeps
+working - the artefacts beside it are moved in rather than downloaded again.
 
 ## Licenses and credit
 
