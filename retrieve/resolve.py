@@ -28,7 +28,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # The data directory, loaded by file path like bootstrap.py itself is - see
-# install.py. Constants only, so re-executing it per module costs nothing.
+# bootstrap.py. Constants only, so re-executing it per module costs nothing.
 _paths_spec = importlib.util.spec_from_file_location("edith_paths", Path(__file__).resolve().parent.parent / "paths.py")
 paths = importlib.util.module_from_spec(_paths_spec)
 _paths_spec.loader.exec_module(paths)

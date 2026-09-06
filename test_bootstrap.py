@@ -1,6 +1,6 @@
 """Tests for the shared fetch.
 
-install.py and terminal.py both bootstrap. The risk this file guards is
+terminal.py's first run bootstraps through this module. The risk it guards is
 drift: two fetchers naming two repos, or one of them pulling the whole model
 repo and dragging stage 2's spare gigabyte along.
 """
@@ -178,8 +178,8 @@ def test_fetch_weights_recovers_when_hub_names_are_still_none(monkeypatch, tmp_p
 
     bootstrap.py imports hf_hub_download/snapshot_download at module level
     inside a try/except ImportError, binding both to None when
-    huggingface_hub is absent - deliberately, so install.py can import
-    bootstrap.py BEFORE pip has installed anything. install.py then
+    huggingface_hub is absent - deliberately, so bootstrap.py stays
+    importable before its dependencies exist. The installer then
     pip-installs huggingface_hub and calls bootstrap.fetch_all() in the SAME
     process, where the names are still None: installing a package does not
     rebind a name that was already resolved to None at import time.
@@ -211,7 +211,7 @@ def test_fetch_weights_recovers_when_hub_names_are_still_none(monkeypatch, tmp_p
         hf_hub_download=fake_hf_hub_download,
         snapshot_download=lambda *a, **kw: None,
     )
-    # huggingface_hub "becomes" importable, as it would after install.py's
+    # huggingface_hub "becomes" importable, as it would after an install's
     # pip install - without actually installing or importing the real thing.
     monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 

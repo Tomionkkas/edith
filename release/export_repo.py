@@ -35,8 +35,8 @@ INCLUDE = [
     "release/*.py",
     "tokenizer/marvel_bpe_50257.model",
     "tokenizer/marvel_bpe_50257.vocab",
-    "bootstrap.py", "install.py", "install.ps1",
-    "test_bootstrap.py", "test_install.py",
+    "bootstrap.py", "paths.py", "edith_cli.py", "pyproject.toml",
+    "test_bootstrap.py",
     "edith", "edith.cmd",
     ".gitattributes",
     "README.md", "MEASUREMENTS.md",
@@ -45,7 +45,7 @@ INCLUDE = [
 ]
 
 PUBLIC_GITIGNORE = """\
-# ---- fetched by install.py, never committed ---------------------------------
+# ---- fetched on first run, never committed ---------------------------------
 checkpoints/
 curated/
 retrieve/*.pkl
