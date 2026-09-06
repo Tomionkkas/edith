@@ -1,0 +1,3 @@
+#!/bin/sh
+# EDITH - a Marvel terminal.  Run from the repo folder:  ./edith
+exec python3 "$(dirname "$0")/infer/terminal.py" "$@"

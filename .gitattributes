@@ -1,0 +1,12 @@
+# Shell scripts run on Linux GPU boxes. With core.autocrlf=true on Windows,
+# git rewrites them CRLF in the working copy, and bash then fails line by
+# line with "$'\r': command not found" - a launch failed exactly this way.
+# Force LF regardless of platform.
+*.sh text eol=lf
+# The POSIX launcher has no extension, so *.sh does not cover it. CRLF
+# in a file starting #!/bin/sh fails with "bad interpreter".
+edith text eol=lf
+
+# Tokenizer models are binary; never let git touch their bytes.
+*.model binary
+*.vocab binary
