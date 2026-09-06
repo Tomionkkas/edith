@@ -66,9 +66,14 @@ The first `edith` asks before it downloads anything: the fp16 weights
 (508 MB) and the corpus (296 MB) from Hugging Face, ~804 MB together, then
 it rebuilds the retrieval index locally in about 30 seconds. The index is
 never downloaded - it is a pickle, and unpickling executes arbitrary code,
-so it is cheaper and safer to rebuild it. No GPU is required: PyTorch
-installs the CPU wheel unless it detects an NVIDIA card, and most answers
-never reach the model regardless of which wheel you have.
+so it is cheaper and safer to rebuild it.
+
+EDITH runs on the CPU. That is the default and, for most of what it does,
+the whole story: an answer composed from a retrieved record never reaches
+the model at all and lands in a few milliseconds. Only the questions no
+field can answer are generated, and those take a couple of seconds. If you
+have an NVIDIA card and want them faster, add `--torch-backend=auto` to the
+install command above and uv will fetch a CUDA build instead.
 
 All of that lands in `~/.edith` (`C:\Users\you\.edith` on Windows) - one
 directory, one thing to delete. `EDITH_HOME` moves it.
