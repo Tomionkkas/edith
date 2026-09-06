@@ -74,6 +74,10 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ---- agent scratch ----------------------------------------------------------
+.superpowers/
+.claude/
 """
 
 # Generic shapes, never a literal secret - a scanner that contains the key it

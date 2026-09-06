@@ -106,7 +106,8 @@ def test_a_public_gitignore_is_written(tmp_path):
     src = fake_tree(tmp_path)
     E.export(src, tmp_path / "out")
     text = (tmp_path / "out" / ".gitignore").read_text()
-    for line in ("checkpoints/", "curated/", "retrieve/*.pkl"):
+    for line in ("checkpoints/", "curated/", "retrieve/*.pkl",
+                 ".superpowers/"):
         assert line in text
 
 
