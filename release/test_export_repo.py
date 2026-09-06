@@ -52,6 +52,9 @@ def fake_tree(tmp_path):
     (src / "tokenizer" / "marvel_bpe_32000.model").write_text("m\n")
 
     (src / "bootstrap.py").write_text("# bootstrap\n")
+    (src / "paths.py").write_text("# paths\n")
+    (src / "edith_cli.py").write_text("# cli\n")
+    (src / "pyproject.toml").write_text("[project]\n")
     (src / "test_bootstrap.py").write_text("def test_x(): pass\n")
     (src / "edith").write_text("#!/bin/bash\n")
     (src / "edith.cmd").write_text("@echo off\n")
@@ -159,6 +162,9 @@ def test_every_include_entry_arrives_in_output(tmp_path):
         "tokenizer/marvel_bpe_50257.model",
         "tokenizer/marvel_bpe_50257.vocab",
         "bootstrap.py",
+        "paths.py",
+        "edith_cli.py",
+        "pyproject.toml",
         "test_bootstrap.py",
         "edith",
         "edith.cmd",
