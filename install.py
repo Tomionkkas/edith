@@ -71,6 +71,7 @@ def main() -> int:
             return 1
 
     print("\n artefacts")
+    bootstrap.migrate_legacy(log=print)
     bootstrap.fetch_all()
 
     print("\nEDITH is ready.\n")

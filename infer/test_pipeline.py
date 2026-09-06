@@ -12,7 +12,7 @@ in isolation, and none was catchable by a unit test:
     answered with Iron Man's power list
 
 Each was found by hand, by re-running the same questions. These make that
-`pytest`. They need retrieve/index.pkl and retrieve/names.pkl and are skipped
+`pytest`. They need the built index and names (see paths.py) and are skipped
 without them; generation is NOT exercised here, because every failure above
 was upstream of the model.
 """
@@ -22,8 +22,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HAVE_DATA = (ROOT / "retrieve" / "index.pkl").exists() and \
-            (ROOT / "retrieve" / "names.pkl").exists()
+_paths_spec = importlib.util.spec_from_file_location(
+    "edith_paths", ROOT / "paths.py")
+paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(paths)
+
+HAVE_DATA = paths.INDEX.exists() and paths.NAMES.exists()
 
 
 def _load(name, rel):
@@ -34,7 +38,7 @@ def _load(name, rel):
     return m
 
 
-@unittest.skipUnless(HAVE_DATA, "needs retrieve/index.pkl and names.pkl")
+@unittest.skipUnless(HAVE_DATA, "needs the built index and names")
 class Pipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -292,7 +296,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-@unittest.skipUnless(HAVE_DATA, "needs retrieve/index.pkl and names.pkl")
+@unittest.skipUnless(HAVE_DATA, "needs the built index and names")
 class UnknownEntities(Pipeline):
     """Refusing must not become refusing everything.
 
@@ -330,7 +334,7 @@ class UnknownEntities(Pipeline):
             self.assertIn(word, self.index.postings, word)
 
 
-@unittest.skipUnless(HAVE_DATA, "needs retrieve/index.pkl and names.pkl")
+@unittest.skipUnless(HAVE_DATA, "needs the built index and names")
 class ConfidenceReadsTheCorpusVocabulary(Pipeline):
     """FINDING 2026-09-02: `resolve.confidence()` and `resolve.rivals()`
     judged their tier-1 unknown-word guard against the NAME vocabulary, while

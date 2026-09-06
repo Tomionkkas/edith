@@ -3,6 +3,7 @@
 `run_cases.py` proved the point - a unit test that calls the engine directly
 cannot see that an open menu was eating turns before they reached it.
 """
+import importlib.util
 import os
 import subprocess
 import sys
@@ -10,8 +11,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CKPT = ROOT / "checkpoints" / "model.safetensors"
-INDEX = ROOT / "retrieve" / "index.pkl"
+_paths_spec = importlib.util.spec_from_file_location(
+    "edith_paths", ROOT / "paths.py")
+paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(paths)
+
+CKPT = paths.WEIGHTS
+INDEX = paths.INDEX
 
 
 def session(*lines, timeout=300):

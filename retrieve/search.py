@@ -23,11 +23,19 @@ from array import array
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import importlib.util
+
 import numpy as np
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-CURATED = BASE_DIR / "curated"
-INDEX_PATH = Path(__file__).resolve().parent / "index.pkl"
+# The data directory, loaded by file path like bootstrap.py itself is - see
+# install.py. Constants only, so re-executing it per module costs nothing.
+_paths_spec = importlib.util.spec_from_file_location("edith_paths", BASE_DIR / "paths.py")
+paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(paths)
+
+CURATED = paths.CORPUS
+INDEX_PATH = paths.INDEX
 SEPARATOR = "=" * 60
 
 # One token per: dotted acronym (S.H.I.E.L.D.), hyphenated name or reality id

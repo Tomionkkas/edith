@@ -235,3 +235,80 @@ def test_ensure_hub_leaves_a_monkeypatched_callable_alone(monkeypatch):
 
     assert B.hf_hub_download is sentinel_dl
     assert B.snapshot_download is sentinel_snap
+
+
+# ------------------------------------------------- the pre-data-dir layout
+
+def _legacy(monkeypatch, tmp_path):
+    """A clone with artefacts beside the code, and an empty data directory."""
+    clone, data = tmp_path / "clone", tmp_path / "data"
+    (clone / "checkpoints").mkdir(parents=True)
+    (clone / "retrieve").mkdir(parents=True)
+    (clone / "curated").mkdir(parents=True)
+    (clone / "checkpoints" / "model.safetensors").write_text("weights")
+    (clone / "checkpoints" / "config.json").write_text("cfg")
+    (clone / "retrieve" / "index.pkl").write_text("index")
+    (clone / "retrieve" / "names.pkl").write_text("names")
+    for name in B.CORPUS_FILES:
+        (clone / "curated" / name).write_text("x")
+    monkeypatch.setattr(B, "ROOT", clone)
+    monkeypatch.setattr(B, "WEIGHTS", data / "checkpoints" / "model.safetensors")
+    monkeypatch.setattr(B, "CONFIG_JSON", data / "checkpoints" / "config.json")
+    monkeypatch.setattr(B, "CORPUS", data / "curated")
+    monkeypatch.setattr(B, "INDEX", data / "index.pkl")
+    monkeypatch.setattr(B.paths, "NAMES", data / "names.pkl")
+    monkeypatch.setattr(B, "_migrated", False)
+    return clone, data
+
+
+def test_migration_moves_an_old_clone_into_the_data_directory(monkeypatch, tmp_path):
+    """The bug this guards: a `git pull` that relocates the artefacts would
+    otherwise read as an 800 MB re-download, with the old copy orphaned."""
+    clone, data = _legacy(monkeypatch, tmp_path)
+    B.migrate_legacy()
+    assert B.WEIGHTS.read_text() == "weights"
+    assert B.INDEX.read_text() == "index"
+    assert B.paths.NAMES.read_text() == "names"
+    assert B.corpus_complete()
+    assert not (clone / "checkpoints" / "model.safetensors").exists()
+
+
+def test_migration_leaves_nothing_to_download(monkeypatch, tmp_path):
+    _legacy(monkeypatch, tmp_path)
+    assert B.download_mb() == B.WEIGHTS_MB + B.CORPUS_MB   # before
+    B.migrate_legacy()
+    assert B.missing() == []
+    assert B.download_mb() == 0                            # after
+
+
+def test_migration_never_overwrites_the_data_directory(monkeypatch, tmp_path):
+    """A newer download in place must win over an older clone's copy."""
+    clone, data = _legacy(monkeypatch, tmp_path)
+    B.WEIGHTS.parent.mkdir(parents=True)
+    B.WEIGHTS.write_text("newer")
+    B.migrate_legacy()
+    assert B.WEIGHTS.read_text() == "newer"
+    assert (clone / "checkpoints" / "model.safetensors").exists()
+
+
+def test_migration_is_a_noop_with_no_old_clone(monkeypatch, tmp_path):
+    monkeypatch.setattr(B, "ROOT", tmp_path / "empty")
+    monkeypatch.setattr(B, "WEIGHTS", tmp_path / "d" / "model.safetensors")
+    monkeypatch.setattr(B, "_migrated", False)
+    assert B.migrate_legacy() == []
+
+
+def test_migration_survives_a_move_that_fails(monkeypatch, tmp_path):
+    """A half-finished move must not be fatal - the artefact stays put and
+    gets re-fetched, which beats losing it."""
+    clone, data = _legacy(monkeypatch, tmp_path)
+    monkeypatch.setattr(B.shutil, "move",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    assert B.migrate_legacy() == []
+    assert (clone / "checkpoints" / "model.safetensors").exists()
+
+
+def test_migration_runs_once_per_process(monkeypatch, tmp_path):
+    _legacy(monkeypatch, tmp_path)
+    assert len(B.migrate_legacy()) == 5
+    assert B.migrate_legacy() == []

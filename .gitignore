@@ -20,6 +20,8 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+dist/
+*.whl
 .pytest_cache/
 
 # ---- editors / os -----------------------------------------------------------

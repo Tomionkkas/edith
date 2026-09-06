@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "edith"
+version = "1.0.0"
+description = "A 250M-parameter GPT, trained from scratch on a Marvel corpus, wrapped in a retrieval system, answering questions in a terminal."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Tomionkkas" }]
+keywords = ["marvel", "gpt", "retrieval", "bm25", "terminal"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# torch is unpinned on purpose. bootstrap.torch_install_args() picks the cu126
+# wheel when nvidia-smi answers and the default wheel otherwise; a pin here
+# would override that choice for anyone installing through pip.
+dependencies = [
+    "torch",
+    "safetensors",
+    "huggingface_hub",
+    "sentencepiece",
+    "numpy",
+]
+
+[project.urls]
+Homepage = "https://github.com/Tomionkkas/edith"
+Source = "https://github.com/Tomionkkas/edith"
+
+[project.scripts]
+edith = "_edith.edith_cli:main"
+
+# The wheel keeps the source layout but nests it one level down. Shipping
+# `infer`, `retrieve` and `train` as top-level names would put three very
+# common words into site-packages, where `import train` could mean EDITH's.
+# `_edith` is a PEP 420 namespace package - no __init__.py needed - and the
+# module loading is by file path throughout, so nesting changes nothing at
+# runtime: ROOT resolves to the new directory and every relative path holds.
+#
+# `edith` is not available as the directory name: the repo root already has a
+# file called `edith` (the POSIX launcher), and macOS filesystems are
+# case-insensitive but not name-blind - a file and a directory cannot share it.
+[tool.hatch.build.targets.wheel]
+only-include = ["infer", "retrieve", "train", "tokenizer"]
+# Tests, shell drivers and the .vocab are developer tooling: nothing at
+# runtime opens them, and they are a third of the file count.
+exclude = ["**/test_*.py", "**/*.sh", "**/*.bat", "**/*.vocab"]
+
+[tool.hatch.build.targets.wheel.sources]
+"infer" = "_edith/infer"
+"retrieve" = "_edith/retrieve"
+"train" = "_edith/train"
+"tokenizer" = "_edith/tokenizer"
+
+# `sources` remaps directory prefixes only - loose files at the repo root slip
+# through it and land top-level in site-packages, which broke the entry point
+# and put `paths.py` in everyone's import namespace. force-include maps a
+# single file explicitly.
+[tool.hatch.build.targets.wheel.force-include]
+"edith_cli.py" = "_edith/edith_cli.py"
+"bootstrap.py" = "_edith/bootstrap.py"
+"paths.py" = "_edith/paths.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".github", "crawl", "release", "*.pkl"]
