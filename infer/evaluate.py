@@ -232,6 +232,101 @@ FLAGSHIPS = [
 ]
 
 
+# ------------------------------------------------------------------ typos
+#
+# Phase 4.13. Generated, not hand-picked: a list of typos someone chose is a
+# list of typos the implementation will be tuned to pass. The generator is
+# seeded so the score is comparable between runs, and `sorted_vocabulary`
+# exists so difflib's tie-breaks do not move with PYTHONHASHSEED.
+
+# QWERTY adjacency, for the substitution a real finger makes.
+NEIGHBOURS = {
+    'a': 'qsz', 'b': 'vgn', 'c': 'xdv', 'd': 'sfce', 'e': 'wrd', 'f': 'dgrv',
+    'g': 'fhtb', 'h': 'gjyn', 'i': 'uok', 'j': 'hkmu', 'k': 'jlim', 'l': 'kop',
+    'm': 'njk', 'n': 'bmhj', 'o': 'ipl', 'p': 'ol', 'q': 'wa', 'r': 'etf',
+    's': 'adwx', 't': 'ryg', 'u': 'yij', 'v': 'cbf', 'w': 'qes', 'x': 'zsc',
+    'y': 'tuh', 'z': 'asx',
+}
+
+TYPO_SEED = 20260918
+
+
+def _corrupt(word, rng, n=4):
+    """Up to `n` distinct single-edit corruptions of one word."""
+    out, tries = set(), 0
+    while len(out) < n and tries < 60:
+        tries += 1
+        i = rng.randrange(len(word))
+        c = word[i]
+        kind = rng.choice(("delete", "double", "swap", "sub"))
+        if kind == "delete" and len(word) > 4:
+            bad = word[:i] + word[i + 1:]
+        elif kind == "double":
+            bad = word[:i] + c + c + word[i:]
+        elif kind == "swap" and i < len(word) - 1:
+            bad = word[:i] + word[i + 1] + c + word[i + 2:]
+        elif kind == "sub" and c in NEIGHBOURS:
+            bad = word[:i] + rng.choice(NEIGHBOURS[c]) + word[i + 1:]
+        else:
+            continue
+        if bad != word and len(bad) > 2:
+            out.add(bad)
+    return sorted(out)
+
+
+def typo_cases(resolve, seed=TYPO_SEED):
+    """(question, want, kind) for every generated typo over the flagships.
+
+    `kind` is "entity" or "scaffold" - which WORD was corrupted. Reported
+    separately because 23% of the damage is a misspelled question word with
+    the character typed perfectly, and one aggregate number hides whether
+    that half is fixed.
+    """
+    rng = random.Random(seed)
+    for question, want in FLAGSHIPS:
+        for token in [w for w in question.split() if len(w) > 3]:
+            clean = token.strip(",?")
+            kind = "scaffold" if clean.lower() in resolve.QUERY_NOISE else "entity"
+            for bad in _corrupt(clean, rng):
+                yield question.replace(token, bad), want, kind
+
+
+def typo_score(index, engine, facts, resolve, seed=TYPO_SEED):
+    """Score typo'd flagships on record IDENTITY, exactly as flagships are.
+
+    Keyed on `Page:`, not the headline. A first pass keyed on headlines
+    reported 0/280 surviving and was wrong by 12 - the same mistake 4.9
+    fixed in the flagships themselves.
+    """
+    rows = []
+    for question, want, kind in typo_cases(resolve, seed):
+        got = engine.resolved_doc(question, index, facts, resolve)
+        page = None
+        if got is not None:
+            page = resolve.page_title(index.text(got)) or index.headlines[got]
+        rows.append((page == want, kind, question, want, page))
+    return rows
+
+
+def report_typos(index, engine, facts, resolve, show=12, seed=TYPO_SEED):
+    rows = typo_score(index, engine, facts, resolve, seed)
+    print(f"{len(rows)} single-edit typos over {len(FLAGSHIPS)} flagship "
+          f"queries (seed {seed})\n")
+    print(f"{'':10}{'recovered':>11}{'total':>8}{'':4}rate")
+    for kind in ("entity", "scaffold"):
+        sub = [r for r in rows if r[1] == kind]
+        hit = sum(1 for r in sub if r[0])
+        print(f"{kind:10}{hit:>11}{len(sub):>8}    {hit/len(sub)*100:5.1f}%")
+    hit = sum(1 for r in rows if r[0])
+    print(f"{'TOTAL':10}{hit:>11}{len(rows):>8}    {hit/len(rows)*100:5.1f}%")
+    misses = [r for r in rows if not r[0]]
+    if misses and show:
+        print(f"\n{len(misses)} not recovered; first {min(show, len(misses))}:")
+        for _ok, kind, q, want, page in misses[:show]:
+            print(f"  [{kind}] {q!r}\n       want {want!r}\n       got  {page!r}")
+    return rows
+
+
 def flagship_score(index, engine, facts, resolve):
     """Score on record IDENTITY, not on the headline string.
 
@@ -387,6 +482,8 @@ def main() -> int:
                     help="score events, issues, teams and variants too")
     ap.add_argument("--rank", action="store_true",
                     help="sweep whole ranking keys instead of scoring one")
+    ap.add_argument("--typos", action="store_true",
+                    help="score generated single-edit typos over the flagships")
     ap.add_argument("--picker", action="store_true",
                     help="sweep how often each confidence rule would ask")
     args = ap.parse_args()
@@ -400,6 +497,10 @@ def main() -> int:
     index = search.Index.load()
     engine._NAMES = resolve.load() or {}
     resolve.token_index(engine._NAMES)
+
+    if args.typos:
+        report_typos(index, engine, facts, resolve, args.show)
+        return 0
 
     if args.kinds:
         by_kind(index, resolve, engine, facts, args.n, args.seed)

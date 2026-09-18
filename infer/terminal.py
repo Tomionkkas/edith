@@ -449,6 +449,15 @@ class Terminal:
         self.emit_trace(plan.doc_id,
                         len(plan.choices) if plan.choices is not None else 0)
 
+        # 4.13: say what was read BEFORE anything else - including before the
+        # picker, which returns early. "who is spidermmn" offers the same ten
+        # Spider-Man records the correctly spelled question does, and without
+        # this line the menu appears with nothing explaining how it got there.
+        if plan.corrected is not None and plan.doc_id is not None:
+            note = render.correction_line(self.index.headlines[plan.doc_id])
+            print()
+            print("  " + theme.paint("…" + note, t.dim))
+
         if plan.choices is not None:
             self.offer(plan.choices)
             return

@@ -115,12 +115,18 @@ class Plan:
     replaced that box with the field rows and this sentence outlived it.)
     """
 
-    __slots__ = ("text", "prompt", "doc_id", "chitchat", "choices", "rows")
+    __slots__ = ("text", "prompt", "doc_id", "chitchat", "choices", "rows",
+                 "corrected")
 
     def __init__(self, text=None, prompt=None, doc_id=None,
-                 chitchat=False, choices=None, rows=None):
+                 chitchat=False, choices=None, rows=None, corrected=None):
         self.text, self.prompt, self.doc_id = text, prompt, doc_id
         self.chitchat = chitchat
+        # The corrected query key when 4.13's typo fallback answered this,
+        # else None. The terminal turns it into one line above the answer;
+        # the KEY is kept rather than a rendered string so the caller decides
+        # how to say it, and says it with the record's headline.
+        self.corrected = corrected
         # Records to offer instead of answering. When this is set, `text` and
         # `prompt` are both None: a plan that offers a choice does not also
         # answer. The terminal decides how to show it; deciding WHETHER is
@@ -136,7 +142,22 @@ class Plan:
 
 def resolved_doc(question: str, index, facts, resolve, previous=None,
                  settled=None):
-    """The record a question resolves to, or None.
+    """The record a question resolves to, or None. ~40 callers read this.
+
+    A thin wrapper over `resolved_doc_spelled` so the two cannot drift.
+    """
+    return resolved_doc_spelled(question, index, facts, resolve, previous,
+                                settled)[0]
+
+
+def resolved_doc_spelled(question: str, index, facts, resolve, previous=None,
+                         settled=None):
+    """`(doc_id, corrected_key)` - the record, and any typo it had to fix.
+
+    `corrected_key` is None unless 4.13's fallback was used. Only the direct
+    resolution can carry one: a follow-up inherits `previous` and a settled
+    pick is the user's own choice, and announcing "reading that as" over
+    either would be describing a correction that did not happen.
 
     None from a LOADED name index means the corpus does not have this
     character - a refusal, not a reason to fall back to document scoring.
@@ -150,7 +171,7 @@ def resolved_doc(question: str, index, facts, resolve, previous=None,
     carries over is the retrieved record, not the dialogue.
     """
     if resolve is None or facts is None or not (names := _names(resolve)):
-        return None
+        return None, None
     probe = facts.entity_text(question)
     key = resolve.query_key(probe)
     if not key:
@@ -160,15 +181,15 @@ def resolved_doc(question: str, index, facts, resolve, previous=None,
         # previous record if there is one, and otherwise admit we do not know
         # who is meant. The cost is that "who is him" no longer reaches Adam
         # Warlock, whose alias is literally "Him"; guessing was worse.
-        return previous
+        return previous, None
     # A name the user explicitly picked answers from that record for the
     # rest of the session. Checked HERE, not only in plan(), because
     # try_facts() and build_prompt() each resolve again to build the text -
     # overriding plan()'s local doc_id alone changed the trace and left the
     # answer coming from the record the user did not pick.
     if settled and key in settled:
-        return settled[key]
-    return resolve.resolve(names, probe, index.postings)
+        return settled[key], None
+    return resolve.resolve_spelled(names, probe, index.postings)
 
 
 # How close the top two records must be before EDITH asks instead of
@@ -255,9 +276,18 @@ def plan(question: str, index, sft, search, disambiguate, facts,
     # thing this system must not do, and no unit test saw it because they all
     # called try_facts directly rather than talking to it.
     small_talk = is_chitchat(question, sft)
-    doc_id = (None if small_talk
-              else resolved_doc(question, index, facts, resolve, previous,
-                                settled))
+    doc_id, corrected = ((None, None) if small_talk
+                         else resolved_doc_spelled(question, index, facts,
+                                                   resolve, previous, settled))
+    # Retrieval being right is not enough. `build_prompt` sends the QUESTION
+    # to the model, so leaving the typo in it printed "I couldn't find
+    # Deadpol" directly beneath "reading that as Deadpool". Rewrite once,
+    # here, so try_facts and build_prompt both see the corrected wording -
+    # fixing it in either alone would leave the other saying the typo.
+    if corrected is not None:
+        question = resolve.spell.respell(
+            question, resolve.query_key(facts.entity_text(question)),
+            corrected, resolve.norm, resolve.QUERY_NOISE)
     # Before try_facts, not after. facts.variants() walks all 201,815
     # headlines - 636 ms measured - and try_facts walks them again to build a
     # sentence this branch then throws away. Asking first pays that once.
@@ -270,7 +300,8 @@ def plan(question: str, index, sft, search, disambiguate, facts,
         # collapses to a single row while total stayed > 1, so this used to
         # offer anyway: "1 records could be this. Which?" - a menu of one.
         if len(rows) > 1:
-            return Plan(doc_id=doc_id, chitchat=small_talk, choices=rows)
+            return Plan(doc_id=doc_id, chitchat=small_talk, choices=rows,
+                        corrected=corrected)
     text = try_facts(question, index, sft, search, disambiguate, facts,
                      resolve, k=k, previous=previous, settled=settled)
     if text is not None:
@@ -285,11 +316,12 @@ def plan(question: str, index, sft, search, disambiguate, facts,
         # was asked for was computed and discarded.
         if doc_id is not None and facts.wants_whole_entity(question):
             field_rows = facts.profile_rows(index.text(doc_id)) or None
-        return Plan(text=text, doc_id=doc_id, chitchat=small_talk, rows=field_rows)
+        return Plan(text=text, doc_id=doc_id, chitchat=small_talk,
+                    rows=field_rows, corrected=corrected)
     return Plan(prompt=build_prompt(question, index, sft, search, disambiguate,
                                     facts, resolve, k=k, previous=previous,
                                     settled=settled),
-                doc_id=doc_id, chitchat=small_talk)
+                doc_id=doc_id, chitchat=small_talk, corrected=corrected)
 
 
 def try_facts(question: str, index, sft, search, disambiguate, facts,

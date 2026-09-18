@@ -21,19 +21,39 @@ symbiote questions with Mary Jane.
 """
 from __future__ import annotations
 
-import pickle
 import importlib.util
+import pickle
 import re
 from collections import defaultdict
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+
 # The data directory, loaded by file path like bootstrap.py itself is - see
 # bootstrap.py. Constants only, so re-executing it per module costs nothing.
-_paths_spec = importlib.util.spec_from_file_location("edith_paths", Path(__file__).resolve().parent.parent / "paths.py")
+_paths_spec = importlib.util.spec_from_file_location(
+    "edith_paths", HERE.parent / "paths.py")
 paths = importlib.util.module_from_spec(_paths_spec)
 _paths_spec.loader.exec_module(paths)
 
 NAMES_PATH = paths.NAMES
+
+
+def _load(name):
+    """Load a sibling module by path, the way search.py and build_names do.
+
+    `retrieve/` is not a package and is loaded by file location from three
+    different places, so a plain `import spell` finds nothing.
+    """
+    spec = importlib.util.spec_from_file_location(name, HERE / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Typo recovery (4.13). `spell` must not import this module back - it is kept
+# pure and takes the vocabulary and the noise list as arguments.
+spell = _load("spell")
 
 REALITY_SUFFIX = re.compile(r"\s*\((?:Earth|Reality)[-\w]*\)\s*$", re.I)
 PAREN_SUFFIX = re.compile(r"\s*\([^)]*\)\s*$")
@@ -463,12 +483,12 @@ def load(path=NAMES_PATH):
 # Derived tables for the most recently used name index. The dict itself is
 # held, not its id(): an id is reused once the object is collected, and a
 # cache keyed on one silently answers for the wrong index.
-_CACHE = {"names": None, "vocab": None, "tokens": None}
+_CACHE = {"names": None, "vocab": None, "tokens": None, "sorted": None}
 
 
 def _derived(names: dict) -> dict:
     if _CACHE["names"] is not names:
-        _CACHE.update(names=names, vocab=None, tokens=None)
+        _CACHE.update(names=names, vocab=None, tokens=None, sorted=None)
     return _CACHE
 
 
@@ -478,6 +498,19 @@ def vocabulary(names: dict) -> frozenset:
     if cache["vocab"] is None:
         cache["vocab"] = frozenset(t for name in names for t in name)
     return cache["vocab"]
+
+
+def sorted_vocabulary(names: dict) -> list:
+    """`vocabulary()` in a fixed order, for difflib. Cached.
+
+    difflib breaks ties by input order, so a set - whose iteration order
+    varies with PYTHONHASHSEED - would make the typo harness score a
+    different number on the same build. 53,912 tokens, sorted once.
+    """
+    cache = _derived(names)
+    if cache["sorted"] is None:
+        cache["sorted"] = sorted(vocabulary(names))
+    return cache["sorted"]
 
 
 def token_index(names: dict) -> dict:
@@ -589,8 +622,12 @@ def query_key(text: str) -> tuple:
     return tuple(t for t in norm(text) if t not in QUERY_NOISE)
 
 
-def resolve(names: dict, query: str, known_words=None):
-    """Best doc_id for the character named in `query`, or None.
+def _best(names: dict, key: tuple, known_words=None):
+    """Best `(rank_tuple, doc_id)` for an already-keyed query, or None.
+
+    Split out of `resolve()` in 4.13 so the typo fallback can score a
+    corrected key through EXACTLY this loop rather than a second copy of it.
+    Nothing in the body changed when it moved.
 
     Three ways a query can name a record, ranked as tiers because none alone
     is enough:
@@ -610,12 +647,6 @@ def resolve(names: dict, query: str, known_words=None):
     Main continuity outranks everything: the Marvel Cinematic Universe article
     owns the bare name "Thor" exactly, and is not the character people mean.
     """
-    if not names:
-        return None
-    key = query_key(query) or norm(query)
-    if not key:
-        return None
-
     terms = set(key)
     vocab = vocabulary(names)
     best = None
@@ -656,7 +687,63 @@ def resolve(names: dict, query: str, known_words=None):
         cand = rank(main, provenance, size, tier, doc_id, famous)
         if best is None or cand > best[0]:
             best = (cand, doc_id)
-    return best[1] if best else None
+    return best
+
+
+def resolve_spelled(names: dict, query: str, known_words=None):
+    """`(doc_id, corrected_key)` - the resolution, and what it had to fix.
+
+    `corrected_key` is None unless a typo fallback was used, so a caller can
+    say "reading that as X" without guessing whether anything was corrected.
+
+    **The fallback runs only when the ordinary path returns None**, and that
+    gate is the phase's entire safety argument. Every flagship and every
+    corpus round-trip resolves to a non-None doc today, so none of them can
+    reach this code - the 97.5% round-trip is not "expected to hold", it is
+    structurally untouched. `test_spell.TheNoneGate` pins the property.
+
+    Measured 2026-09-18: of 280 single-edit typos over the flagships, 88.9%
+    returned None, 6.8% returned the WRONG record and 4.3% survived. Only the
+    88.9% is reachable from here; the wrong 6.8% is a known ceiling, and
+    seeing it would mean contesting a SUCCESSFUL resolution - new code on the
+    path of all 201,352 working names, to chase a twentieth of typos.
+
+    ponytail: None-gate only, blind to the 6.8% that resolve wrongly.
+    Upgrade path: let a correction contest a win that is non-main-continuity
+    and small. Its own phase, after this one is measured.
+    """
+    if not names:
+        return None, None
+    key = query_key(query) or norm(query)
+    if not key:
+        return None, None
+
+    best = _best(names, key, known_words)
+    if best is not None:
+        return best[1], None
+
+    vocab = sorted_vocabulary(names)
+    tidied = spell.drop_noise(key, QUERY_NOISE, vocabulary(names))
+    winner = corrected = None
+    if tidied != key:
+        winner, corrected = _best(names, tidied, known_words), tidied
+    for candidate in spell.corrections(vocab, tidied):
+        cand = _best(names, candidate, known_words)
+        # `>` on the rank tuple, not first-wins: the candidate order is a
+        # difflib similarity order, and preferring it would be exactly the
+        # mistake this phase exists to avoid.
+        if cand is not None and (winner is None or cand[0] > winner[0]):
+            winner, corrected = cand, candidate
+    return (winner[1], corrected) if winner else (None, None)
+
+
+def resolve(names: dict, query: str, known_words=None):
+    """Best doc_id for the character named in `query`, or None.
+
+    A thin wrapper over `resolve_spelled` deliberately: two code paths that
+    both decide "who is this" would drift, and this one has ~40 callers.
+    """
+    return resolve_spelled(names, query, known_words)[0]
 
 
 def rivals(names: dict, query: str, known_words=None) -> int:

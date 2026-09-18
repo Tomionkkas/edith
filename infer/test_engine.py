@@ -365,6 +365,12 @@ class _FakeResolveForChoice:
     def resolve(self, names, query, known_words=None):
         return self._doc_id
 
+    def resolve_spelled(self, names, query, known_words=None):
+        """4.13 added this to the injected-resolve contract. The stand-ins
+        delegate rather than model correction: they exist to pin a doc_id,
+        and a fake that corrected typos would be testing itself."""
+        return self.resolve(names, query, known_words), None
+
 
 class _ConfidenceResolve(_FakeResolveForChoice):
     """A resolver whose confidence is whatever the test says it is.
@@ -921,6 +927,10 @@ class TryFactsActuallyReturnsTheModuleConstant(unittest.TestCase):
         @staticmethod
         def resolve(names, query, known_words=None):
             return None
+
+        @staticmethod
+        def resolve_spelled(names, query, known_words=None):
+            return None, None
 
     def test_try_facts_returns_the_module_constant(self):
         question = "who is zyxthaloraxian the unmaker"

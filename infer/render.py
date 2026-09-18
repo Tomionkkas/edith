@@ -548,3 +548,15 @@ def pick(rows, current: int, draw, keys=None) -> int:
             index = moved
             write(f"\033[{len(rows)}A")              # back to the first row
             draw(index)
+
+
+def correction_line(headline):
+    """"reading that as X", or None when nothing was corrected.
+
+    Names the RECORD, not the corrected token (4.13, decided with the user):
+    "reading that as Spider-Man" lets the reader see whether the guess was
+    right, where "reading that as spiderman" tells them nothing.
+    """
+    if not headline:
+        return None
+    return f"reading that as {headline}"
