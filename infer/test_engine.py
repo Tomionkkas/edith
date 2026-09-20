@@ -362,6 +362,13 @@ class _FakeResolveForChoice:
     def query_key(text):
         return ("spider-man",)
 
+    # 4.5b's passage selector needs norm() to score sentences. Delegated to
+    # the real module rather than stubbed, for the reason _UnresolvableResolve
+    # gives below: a second copy of normalisation would drift from the one
+    # production uses, and these fakes exist to pin a doc_id, not to model
+    # tokenisation.
+    norm = staticmethod(resolve.norm)
+
     def resolve(self, names, query, known_words=None):
         return self._doc_id
 

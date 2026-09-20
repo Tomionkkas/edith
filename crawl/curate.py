@@ -145,11 +145,19 @@ def unwrap_templates(text):
     return "".join(out)
 
 
+GALLERY_RE = re.compile(r"<gallery[^>]*>.*?</gallery>", re.S | re.I)
+
+
 def strip_markup(text):
     """Wikitext -> clean plain text."""
     if not text:
         return ""
     t = COMMENT_RE.sub("", text)
+    # Galleries go WHOLE, before TAG_RE gets to them: TAG_RE removes the
+    # <gallery> tags and leaves every filename between them, which is how
+    # "FOOM Vol 2 1 Textless.jpg|FOOM Vol 2 (One-Shot)" ended up quoted as
+    # narrative. 11% of event records carried this (35 of 317).
+    t = GALLERY_RE.sub("", t)
     t = REF_RE.sub("", t)
     t = MATH_RE.sub("", t)
     t = NOWIKI_RE.sub("", t)
@@ -187,6 +195,29 @@ def strip_markup(text):
 
 FIELD_LINE_RE = re.compile(r"^\|\s*([A-Za-z0-9_\-]+)\s*=\s*(.*)$")
 LIST_ITEM_RE = re.compile(r"^\*+\s*(.*)$")
+
+
+HEADING = re.compile(r"^\s*={2,}\s*(.+?)\s*={2,}\s*$", re.M)
+
+
+def clean_headings(value):
+    """`===Brief Summary===` -> `Brief Summary`. The words stay, the wikitext goes.
+
+    `strip_markup` never saw this: it only ever ran on the body-section path,
+    while a narrative TEMPLATE FIELD goes through joinval(), which strips
+    wikilinks and leaves headings. 5,768 character records (5.5%) and 483 team
+    records carry the markup as a result, and events would have been 52%.
+
+    Anchored to whole lines, so an equals sign inside a sentence is left
+    alone - "E = mc^2" is prose, not a heading.
+
+    Takes the str OR list a template field parses to, because it has to run
+    BEFORE joinval(): joinval collapses a list with "; " and there are no line
+    boundaries left for an anchored pattern to find afterwards.
+    """
+    if isinstance(value, list):
+        return [HEADING.sub(r"\1", v) for v in value]
+    return HEADING.sub(r"\1", value)
 
 
 def find_template_span(wikitext):
@@ -498,7 +529,11 @@ def curate_character(rec, field_map=CHAR_FIELD_MAP, kind="character"):
     headline is the page title, which is what people call them.
     """
     title = rec["title"]
-    wt = rec["wikitext"]
+    # Galleries come off the RAW wikitext, before parse_template_fields
+    # splits a field into lines: a <gallery> block spans several of them, so
+    # stripping per line can never match it, and strip_markup only ever sees
+    # one line at a time. See GALLERY_RE.
+    wt = GALLERY_RE.sub("", rec["wikitext"])
     fields = parse_template_fields(wt)
     sections = body_sections(wt)
 
@@ -539,12 +574,35 @@ def curate_character(rec, field_map=CHAR_FIELD_MAP, kind="character"):
                     continue  # handled separately
                 out.append(f"{label}: {v}")
 
-    # History: prefer the big template field; fall back to body sections
+    # History: prefer the big template field; fall back to body sections, then
+    # to Synopsis.
+    #
+    # Events and story arcs are character-shaped templates - which is why
+    # curator_for() sends them here - but they carry their narrative in
+    # `Synopsis` and have NO History at all. Measured over the full
+    # population of every raw phase:
+    #
+    #     phase         pages   History fld   History sec   Synopsis
+    #     events          379             0             0        317
+    #     story_arcs    1,046             0             0        287
+    #     characters  104,120        98,213             1          0
+    #     teams         6,847         5,909             0          1
+    #     items         3,656         3,532             0          0
+    #     locations    10,647         9,890             0          0
+    #
+    # So this recovers 605 records and can regress none: characters, items
+    # and locations have zero Synopsis fields between them, and History is
+    # tried first regardless. Before this, 100% of the narrative on 604 pages
+    # was dropped - including all of Civil War, whose 59,790-character page
+    # curated to 1,304 characters of Notes and Trivia. That record is the one
+    # Phase 4.5b's first bullet complains about.
     hist = ""
     if fields.get("History"):
-        hist = joinval(fields["History"])
+        hist = joinval(clean_headings(fields["History"]))
     if not hist:
-        hist = strip_markup(sections.get("History", ""))
+        hist = clean_headings(strip_markup(sections.get("History", "")))
+    if not hist:
+        hist = joinval(clean_headings(fields.get("Synopsis", "")))
     if hist:
         out.append("History:")
         out.append(hist)
@@ -587,7 +645,7 @@ def issue_credit_fields(fields, role):
 def curate_issue(rec, kind="issue"):
     """Raw record -> clean training text for one issue."""
     title = rec["title"]
-    wt = rec["wikitext"]
+    wt = GALLERY_RE.sub("", rec["wikitext"])   # see curate_character
     fields = parse_template_fields(wt)
     sections = body_sections(wt)
 
@@ -629,7 +687,10 @@ def curate_issue(rec, kind="issue"):
     for k in sorted(fields):
         m = re.fullmatch(r"Synopsis(\d+)", k)
         if m:
-            s = joinval(fields[k])
+            # clean_headings before joinval, for the reason curate_character
+            # gives: joinval collapses the list with "; " and leaves no line
+            # boundaries for an anchored pattern to find.
+            s = joinval(clean_headings(fields[k]))
             if s:
                 syns.append(s)
     if syns:

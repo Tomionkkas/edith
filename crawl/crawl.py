@@ -64,6 +64,18 @@ TARGETS = [
     ("mw_marvel_backstop",    ENWIKI, "Category:Marvel Comics characters"),
 ]
 
+# Targets whose category hides articles in SUBCATEGORY NAMES rather than
+# listing them as members. Only Events does this: it has 379 member pages -
+# all crawled - and 425 subcategories each named after an event, 416 of which
+# are real articles and 94 of which had never been fetched. `Age of Ultron
+# (Event)` and `Avengers vs. X-Men (Event)` are two of them, which is why
+# `what happened in age of ultron` offered a picker of ten Ultron characters.
+#
+# Deliberately NOT global: Characters, Comics, Items and Locations list their
+# pages directly, and walking their subcategories would pull in thousands of
+# unrelated ones. See enumerate_titles().
+SUBCAT_TARGETS = {"events"}
+
 _stop_requested = False
 
 
@@ -229,13 +241,34 @@ def fetch_wikitext_batch(api: str, titles: list) -> tuple[dict, dict]:
     return pages, errors
 
 
-def enumerate_titles(api: str, cat: str) -> tuple[list[str], int]:
+def enumerate_titles(api: str, cat: str,
+                     subcats: bool = False) -> tuple[list[str], int]:
+    """Article titles in `cat`.
+
+    `subcats` also treats each SUBCATEGORY NAME as an article title, which is
+    how Category:Events is actually organised: 379 member pages, and 425
+    subcategories each named after an event - `Age of Ultron (Event)`,
+    `Avengers vs. X-Men (Event)` - of which 416 are real articles and 94 were
+    never fetched. `Age of Ultron` returning a picker of ten Ultron
+    characters is what that looks like from the outside.
+
+    Off by default, and it must stay off for every other target: Characters,
+    Comics, Items and Locations put their pages in the category directly, and
+    walking their subcategories would pull in thousands of unrelated pages.
+    Opt-in per target, not a global change.
+
+    The `Category:` prefix is stripped because the ARTICLE is what is wanted;
+    fetching `Category:Age of Ultron (Event)` returns a category listing.
+    """
     titles: list[str] = []
+    seen: set = set()
+    containers: list[str] = []
     cont = None
     api_errs = 0
     while True:
         params = {"action": "query", "list": "categorymembers",
-                  "cmtitle": cat, "cmtype": "page", "cmlimit": "500", "format": "json"}
+                  "cmtitle": cat, "cmlimit": "500", "format": "json",
+                  "cmtype": "page|subcat" if subcats else "page"}
         if cont:
             params.update(cont)
         try:
@@ -252,11 +285,47 @@ def enumerate_titles(api: str, cat: str) -> tuple[list[str], int]:
             t = m["title"]
             if t.startswith("File:") or t.startswith("Image:"):
                 continue
+            if t.startswith("Category:"):
+                t = t[len("Category:"):]
+                # A subcategory named "<something> Events" holds events; one
+                # named after an event IS the event. `Age of Ultron (Event)`
+                # sits inside `Editorial Events`, and that container has no
+                # article of its own, so its name alone fetches nothing.
+                # Walking only containers is what keeps this bounded:
+                # `Category:Civil War II` is also a subcategory, and it holds
+                # every tie-in issue of that event.
+                if t.endswith("Events"):
+                    containers.append(t)
+            # A page can be both a member and a subcategory name, and the API
+            # is rate-limited - fetching it twice buys nothing.
+            if t in seen:
+                continue
+            seen.add(t)
             titles.append(t)
         cont = data.get("continue")
         if not cont:
             break
         time.sleep(MIN_INTERVAL)
+
+    # One level into each container. Measured 2026-09-20: 15 containers under
+    # Category:Events holding 15 pages the flat walk never saw, among them
+    # `Age of Ultron (Event)` and `Avengers vs. X-Men (Event)`.
+    for container in containers:
+        time.sleep(MIN_INTERVAL)
+        try:
+            data = http_get_json(api, {
+                "action": "query", "list": "categorymembers",
+                "cmtitle": "Category:" + container, "cmtype": "page",
+                "cmlimit": "500", "format": "json"})
+        except Exception:
+            api_errs += 1
+            continue
+        for m in data.get("query", {}).get("categorymembers", []):
+            t = m["title"]
+            if t.startswith(("File:", "Image:", "Category:")) or t in seen:
+                continue
+            seen.add(t)
+            titles.append(t)
     return titles, api_errs
 
 
@@ -354,7 +423,8 @@ def main() -> int:
             log(f"{name}: resuming with saved titles ({len(titles)} total, {len(done)} done)")
         else:
             log(f"{name}: enumerating {cat} ...")
-            titles, api_errs = enumerate_titles(api, cat)
+            titles, api_errs = enumerate_titles(
+                api, cat, subcats=name in SUBCAT_TARGETS)
             # de-dupe preserving order
             seen = set()
             titles = [t for t in titles if not (t in seen or seen.add(t))]

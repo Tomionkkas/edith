@@ -478,7 +478,14 @@ class Terminal:
         # they are what EDITH is claiming - not chrome around a claim.
         print()
         print(render.speaker(t, t.label, t.second or t.accent))
-        if plan.rows and self.show_sources and plan.doc_id is not None:
+        if plan.quoted and plan.quoted_leads and plan.doc_id is not None:
+            # A narrative ask: the passage IS the answer, so nothing is
+            # printed above it. The field line here would be a creator credit
+            # answering a question nobody asked - 69% of quoted turns opened
+            # with one before this, measured on a live run of 260 questions.
+            print(render.quotation(plan.quoted, t, self.width))
+            source = f"quoted from {self.index.headlines[plan.doc_id]}"
+        elif plan.rows and self.show_sources and plan.doc_id is not None:
             motion.wipe(render.answer_rows(
                 self.index.text(plan.doc_id), plan.rows, t, self.width))
             source = "from the record"
@@ -488,6 +495,15 @@ class Terminal:
         else:
             self._generate(plan.prompt)
             source = "grounded" if plan.doc_id is not None else "unprompted"
+
+        # 4.5b: the passage comes AFTER the answer, never instead of it, so a
+        # wrong quote is noise following a correct answer rather than an error
+        # replacing one. The footer names the quote because the quote is what
+        # the reader can check - it is the only part that is word for word.
+        if plan.quoted and not plan.quoted_leads and plan.doc_id is not None:
+            print()
+            print(render.quotation(plan.quoted, t, self.width))
+            source = f"quoted from {self.index.headlines[plan.doc_id]}"
 
         pair = theme.caption_of(t)
         if pair and t.quip:

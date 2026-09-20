@@ -166,6 +166,14 @@ def test_fetch_all_skips_what_is_already_there(monkeypatch, tmp_path):
     B.CORPUS.mkdir()
     for name in B.CORPUS_FILES:
         (B.CORPUS / name).write_text("x")
+    # The index is built AFTER the corpus is fetched, so in a healthy install
+    # it is always the newer file. This setup wrote it first, which made the
+    # corpus strictly newer and - once fetch_all started checking freshness
+    # rather than mere existence - correctly read as stale. Stated explicitly
+    # rather than left to the order the lines happen to run in.
+    import os, time
+    newer = time.time() + 10
+    os.utime(B.INDEX, (newer, newer))
     monkeypatch.setattr(B, "fetch_weights", lambda: called.append("w"))
     monkeypatch.setattr(B, "fetch_corpus", lambda: called.append("c"))
     monkeypatch.setattr(B, "build_index", lambda: called.append("i"))
@@ -312,3 +320,69 @@ def test_migration_runs_once_per_process(monkeypatch, tmp_path):
     _legacy(monkeypatch, tmp_path)
     assert len(B.migrate_legacy()) == 5
     assert B.migrate_legacy() == []
+
+
+# --- index staleness (Phase B1) ---------------------------------------------
+#
+# fetch_all tested each artefact for EXISTENCE only, so a corpus that changed
+# under an existing install could never take effect: the files were all there,
+# so no re-fetch, and index.pkl was there, so no rebuild. The first change to
+# the curated corpus since release is what exposed it.
+
+
+def _corpus(tmp_path, monkeypatch):
+    monkeypatch.setattr(B, "WEIGHTS", tmp_path / "model.safetensors")
+    monkeypatch.setattr(B, "INDEX", tmp_path / "index.pkl")
+    monkeypatch.setattr(B, "CORPUS", tmp_path / "curated")
+    B.WEIGHTS.write_text("x")
+    B.CORPUS.mkdir()
+    for name in B.CORPUS_FILES:
+        (B.CORPUS / name).write_text("x")
+
+
+def test_a_corpus_newer_than_the_index_is_stale(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    B.INDEX.write_text("x")
+    import os, time
+    newer = time.time() + 10
+    os.utime(B.CORPUS / B.CORPUS_FILES[0], (newer, newer))
+    assert B.index_stale() is True
+
+
+def test_an_index_newer_than_the_corpus_is_fresh(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    B.INDEX.write_text("x")
+    import os, time
+    newer = time.time() + 10
+    os.utime(B.INDEX, (newer, newer))
+    assert B.index_stale() is False
+
+
+def test_a_missing_index_is_stale(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    assert B.index_stale() is True
+
+
+def test_an_incomplete_corpus_is_not_called_stale(monkeypatch, tmp_path):
+    """Nothing to compare against - fetch_corpus owns that case, and saying
+    "stale" here would rebuild an index from a half-downloaded corpus."""
+    monkeypatch.setattr(B, "INDEX", tmp_path / "index.pkl")
+    monkeypatch.setattr(B, "CORPUS", tmp_path / "curated")
+    B.INDEX.write_text("x")
+    B.CORPUS.mkdir()
+    assert B.index_stale() is False
+
+
+def test_fetch_all_rebuilds_a_stale_index(monkeypatch, tmp_path):
+    """The whole point: a changed corpus must reach the index."""
+    called = []
+    _corpus(tmp_path, monkeypatch)
+    B.INDEX.write_text("x")
+    import os, time
+    newer = time.time() + 10
+    os.utime(B.CORPUS / B.CORPUS_FILES[0], (newer, newer))
+    monkeypatch.setattr(B, "fetch_weights", lambda: called.append("w"))
+    monkeypatch.setattr(B, "fetch_corpus", lambda: called.append("c"))
+    monkeypatch.setattr(B, "build_index", lambda: called.append("i"))
+    B.fetch_all(log=lambda *a: None)
+    assert called == ["i"]

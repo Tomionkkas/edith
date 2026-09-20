@@ -560,3 +560,19 @@ def correction_line(headline):
     if not headline:
         return None
     return f"reading that as {headline}"
+
+
+# A quoted passage is the one part of an answer that came from the source
+# word for word. It carries a rule down its left edge so the reader can see
+# where EDITH stops speaking and the record starts - the whole feature rests
+# on that distinction being visible, not merely true.
+QUOTE_MARK = "▏"
+
+
+def quotation(text: str, t, width: int) -> str:
+    """A verbatim passage, marked as one. Words are never altered."""
+    body = wrap(text, max(width - 4, 20), indent="")
+    mark = theme.paint(QUOTE_MARK, t.dim)
+    return "\n".join("  " + mark + " " + theme.paint(line, t.dim)
+                      for line in body.splitlines())
+

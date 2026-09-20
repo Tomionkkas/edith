@@ -41,6 +41,55 @@ EDITH currently manages it belongs in the run, not in the expectation.
 """
 
 CASES = [
+    # ----------------------------------------------- narrative (Phase 4.5b)
+    #
+    # These are the questions no FIELD can answer, and until 4.14 recovered
+    # the events narrative there was nothing in the corpus to answer them
+    # with: curated/events.txt held 373 records and 0.0 MB of prose.
+    #
+    # They are scored on substrings of the QUOTED passage. That is the point
+    # of quoting - the words are the record's own, so an expectation written
+    # against them is an expectation about the corpus, not about phrasing the
+    # model happened to choose.
+    {
+        "ask": ["what happened in the civil war"],
+        "page": "Civil War (Event)",
+        "must_include": ["nitro", "registr"],
+        "must_not_include": ["i don't have", "no information"],
+        "why": "The flagship narrative question. Before 4.5b this answered "
+               "with a creator credit; the story was in the record and "
+               "unreachable.",
+    },
+    {
+        "ask": ["what happened in secret invasion"],
+        "page": "Secret Invasion (Event)",
+        "must_include": ["skrull"],
+        "must_not_include": ["i don't have"],
+        "why": "A second event, so the first is not passing on a fixture.",
+    },
+    {
+        "ask": ["how did nitro kill the new warriors"],
+        "page": "New Warriors (Earth-616)",
+        "must_include": ["stamford"],
+        "must_not_include": ["i don't have"],
+        "why": "A SPECIFIC narrative ask: selection must find the Stamford "
+               "sentence rather than fall back to the opening summary. The "
+               "page was written as Civil War (Event) on an assumption and "
+               "corrected after measuring - the question names the Warriors, "
+               "and that is where it resolves. It currently FAILS on the "
+               "picker (8 records share the name), which is the same "
+               "pre-existing defect as `who is power man`, not a passage "
+               "defect: the selector returns the right sentence when asked.",
+    },
+    {
+        "ask": ["who created taskmaster"],
+        "page": "Anthony Masters (Earth-616)",
+        "must_include": ["david michelinie"],
+        "must_not_include": ["history", "was born"],
+        "why": "The guard on the trigger. A creator credit is one line, and "
+               "4.5b must NOT staple a paragraph of history to it.",
+    },
+
     # ---------------------------------------------------------- the basics
     {
         "ask": ["who created taskmaster"],

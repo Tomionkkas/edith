@@ -8,6 +8,7 @@ look broken, and the difference is invisible in any metric.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -116,10 +117,11 @@ class Plan:
     """
 
     __slots__ = ("text", "prompt", "doc_id", "chitchat", "choices", "rows",
-                 "corrected")
+                 "corrected", "quoted", "quoted_leads")
 
     def __init__(self, text=None, prompt=None, doc_id=None,
-                 chitchat=False, choices=None, rows=None, corrected=None):
+                 chitchat=False, choices=None, rows=None, corrected=None,
+                 quoted=None, quoted_leads=False):
         self.text, self.prompt, self.doc_id = text, prompt, doc_id
         self.chitchat = chitchat
         # The corrected query key when 4.13's typo fallback answered this,
@@ -127,6 +129,14 @@ class Plan:
         # the KEY is kept rather than a rendered string so the caller decides
         # how to say it, and says it with the record's headline.
         self.corrected = corrected
+        # A verbatim passage from `doc_id`'s prose, or None (4.5b). Appended
+        # by the caller AFTER the answer, never substituted for it, so a
+        # wrong passage is noise rather than error. It is quoted, not
+        # generated - the model never sees it and never rewrites it.
+        self.quoted = quoted
+        # True when `quoted` should be shown INSTEAD of the answer rather
+        # than after it - see passage_leads().
+        self.quoted_leads = quoted_leads
         # Records to offer instead of answering. When this is set, `text` and
         # `prompt` are both None: a plan that offers a choice does not also
         # answer. The terminal decides how to show it; deciding WHETHER is
@@ -304,24 +314,38 @@ def plan(question: str, index, sft, search, disambiguate, facts,
                         corrected=corrected)
     text = try_facts(question, index, sft, search, disambiguate, facts,
                      resolve, k=k, previous=previous, settled=settled)
+
+    # Rows are needed by the passage trigger as well as by the answer, so
+    # compute them once here rather than inside the branch that renders them.
+    field_rows = None
+    if (text is not None and doc_id is not None
+            and facts.wants_whole_entity(question)):
+        field_rows = facts.profile_rows(index.text(doc_id)) or None
+
+    quoted = None
+    leads = False
+    if doc_id is not None and wants_passage(question, text, field_rows):
+        psg = _load("passages", "infer/passages.py")
+        quoted = psg.select(index.text(doc_id), question,
+                            resolve.query_key, resolve.norm)
+        leads = quoted is not None and passage_leads(question)
+
     if text is not None:
-        field_rows = None
-        # The SAME predicate try_facts uses to reach its profile branch -
-        # facts.wants_whole_entity(), one expression in one module, not a
-        # copy of one. Two copies drifted twice: gating on wants_profile()
-        # alone attached rows to field questions (the two predicates overlap
-        # heavily), and adding detect_intent() still left variants questions
-        # getting rows beside the list try_facts had just rendered. The
-        # answer path prefers rows over text, so either way the answer that
-        # was asked for was computed and discarded.
-        if doc_id is not None and facts.wants_whole_entity(question):
-            field_rows = facts.profile_rows(index.text(doc_id)) or None
+        # `field_rows` is computed above, with the SAME predicate try_facts
+        # uses to reach its profile branch - facts.wants_whole_entity(), one
+        # expression in one module, not a copy of one. Two copies drifted
+        # twice: gating on wants_profile() alone attached rows to field
+        # questions (the two predicates overlap heavily), and adding
+        # detect_intent() still left variants questions getting rows beside
+        # the list try_facts had just rendered.
         return Plan(text=text, doc_id=doc_id, chitchat=small_talk,
-                    rows=field_rows, corrected=corrected)
+                    rows=field_rows, corrected=corrected, quoted=quoted,
+                    quoted_leads=leads)
     return Plan(prompt=build_prompt(question, index, sft, search, disambiguate,
                                     facts, resolve, k=k, previous=previous,
                                     settled=settled),
-                doc_id=doc_id, chitchat=small_talk, corrected=corrected)
+                doc_id=doc_id, chitchat=small_talk, corrected=corrected,
+                quoted=quoted, quoted_leads=leads)
 
 
 def try_facts(question: str, index, sft, search, disambiguate, facts,
@@ -409,6 +433,72 @@ def _names(resolve):
     if _NAMES is None:
         _NAMES = resolve.load() or {}
     return _NAMES
+
+
+# ---------------------------------------------------------- passages (4.5b)
+
+# A field question has one right answer and a paragraph after it is worse.
+# Checked FIRST, so "how was spider-man created" is still a credit line.
+NEVER_QUOTE = re.compile(
+    r"who (created|made|wrote|drew)|first appear|when did .* debut", re.I)
+
+# The questions no field can answer.
+NARRATIVE_Q = re.compile(
+    r"what happened|what led to|how did|how was|how does|why did|why is|"
+    r"why was|tell me the story|what was the story", re.I)
+
+# Below this a field answer is thin enough that a passage cannot make it
+# worse. 4.5b's figure.
+THIN_TEXT = 80
+
+# A whole-entity question that yielded this many fields or fewer is thin
+# whatever its sentence weighs. The trigger 4.5b lacked: `tell me about the
+# civil war` renders 91 characters - over THIN_TEXT - out of ONE row, and
+# says nothing. Length is the wrong proxy for a profile.
+THIN_ROWS = 1
+
+
+def passage_leads(question: str) -> bool:
+    """Whether the passage should come BEFORE the answer rather than after.
+
+    4.5b's append-never-substitute rule exists so a passage cannot make a
+    CORRECT answer worse. On a narrative ask the field answer is not
+    correct-but-incomplete - it answers a different question - and leading
+    with it buries the one that was asked. Measured on a live run of 260
+    questions, 2026-09-20: 69% of quoted turns opened with a bibliographic
+    credit.
+
+        what happened in American Revolutionary War
+          "American Revolutionary War was created by Ken Bald."
+          > The American Revolutionary War ... was the armed struggle in
+            which the thirteen North American colonies rejected ...
+
+    Only for the NARRATIVE trigger. A thin profile answer is still an answer
+    to what was asked and keeps its place above the passage. The safety
+    property is untouched either way: the quote is verbatim and the model
+    never sees it.
+    """
+    return bool(not NEVER_QUOTE.search(question)
+                and NARRATIVE_Q.search(question))
+
+
+def wants_passage(question: str, text, rows) -> bool:
+    """Whether to append a quoted passage to this answer.
+
+    Taste, not safety: the quote is appended, so the worst case is an
+    irrelevant paragraph after a correct answer. But a quote after every
+    answer teaches the reader to skip it, which costs the feature its point.
+    """
+    if NEVER_QUOTE.search(question):
+        return False
+    if NARRATIVE_Q.search(question):
+        return True
+    if text is None:
+        # The model is answering an ordinary question. Not a reason to quote.
+        return False
+    if len(text) < THIN_TEXT:
+        return True
+    return rows is not None and len(rows) <= THIN_ROWS
 
 
 def build_prompt(question: str, index, sft, search, disambiguate,

@@ -241,6 +241,33 @@ def migrate_legacy(log=lambda *a: None) -> list:
     return moved
 
 
+def index_stale() -> bool:
+    """True when index.pkl is missing, or older than any corpus file.
+
+    fetch_all() used to test every artefact for EXISTENCE alone, which made a
+    corpus update impossible to deliver: the files were all present so nothing
+    re-fetched, and index.pkl was present so nothing rebuilt. An install would
+    keep the corpus it first downloaded for ever, and nothing said so.
+
+    An incomplete corpus is deliberately NOT stale. There is nothing to
+    compare against, fetch_corpus() owns that case, and answering "stale"
+    would rebuild the index from a half-downloaded corpus.
+    """
+    if not INDEX.exists():
+        return True
+    if not corpus_complete():
+        return False
+    # ponytail: mtime, not a content hash. Hashing 296 MB on every launch to
+    # catch a case that a fresh download cannot produce is the wrong trade.
+    # The gap it leaves: a corpus COPIED between machines with mtimes
+    # preserved (cp -p, rsync -a - which docs/CORPUS.md suggests doing) can be
+    # newer in content and older on disk, and reads as fresh. Upgrade path if
+    # that bites: record total corpus bytes beside the index at build time and
+    # compare, which is still stat-only.
+    newest = max((CORPUS / name).stat().st_mtime for name in CORPUS_FILES)
+    return newest > INDEX.stat().st_mtime
+
+
 def fetch_all(log=print) -> None:
     """Idempotent: each step tests for its own output first, and the hub
     cache makes a repeated download free."""
@@ -251,6 +278,6 @@ def fetch_all(log=print) -> None:
     if not corpus_complete():
         log("  corpus ...")
         fetch_corpus()
-    if not INDEX.exists():
+    if index_stale():
         log("  index (~30 s) ...")
         build_index()
