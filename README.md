@@ -50,44 +50,44 @@ Boot, `who is curtis connors`, `/theme moon-knight`, `who is marc spector`.
 A theme changes the colour, the emblem, the rule, the retrieval verb and the
 speaker's name - never an answer.
 
-## The web app
-
-```bash
-edith --web                    # then open http://127.0.0.1:8420
-edith --web --port 9001        # if something already has that port
-```
-
-The same EDITH rendered as a page: one flag, no framework, no build step, no
-dependency the terminal does not already have. It calls the same
-`engine.plan()` the terminal calls, so the two cannot drift - everything in
-`infer/web.py` is transport.
-
-What the page has that a terminal cannot:
-
-**The art.** Every answer carries the record's own cover or portrait, keyed
-on the record that ANSWERED rather than on the words you typed - so Miles
-Morales shows Miles, and the Ultimate Spider-Man shows the Ultimate one.
-95.2% of records have art; the rest draw a plate rather than reflow the page
-around a gap. The images are hotlinked from the wiki's CDN at render time,
-never cached, and the URL is derived rather than looked up: md5 of the
-filename gives the shard it lives in.
-
-**A picker you can read.** Eighteen records are headlined exactly
-"Spider-Man". The terminal can list them; the page shows each one's art, its
-reality and its first appearance, so choosing between them does not require
-already knowing which Earth you meant.
-
-**The whole field.** Wolverine's Powers field is 3,000 characters. The
-terminal truncates it. The page folds it into a `<details>` you can open,
-which is most of why it exists.
-
-**The conversation.** Every turn stays on the page, and clicking an earlier
-one brings that record - and its art - back. The session lives in the
-browser, so a reload does not lose it.
-
-It binds to 127.0.0.1 and is meant for the machine it runs on: there is no
-authentication, and nothing about it expects the open internet.
-
+## The web app
+
+```bash
+edith --web                    # then open http://127.0.0.1:8420
+edith --web --port 9001        # if something already has that port
+```
+
+The same EDITH rendered as a page: one flag, no framework, no build step, no
+dependency the terminal does not already have. It calls the same
+`engine.plan()` the terminal calls, so the two cannot drift - everything in
+`infer/web.py` is transport.
+
+What the page has that a terminal cannot:
+
+**The art.** Every answer carries the record's own cover or portrait, keyed
+on the record that ANSWERED rather than on the words you typed - so Miles
+Morales shows Miles, and the Ultimate Spider-Man shows the Ultimate one.
+95.2% of records have art; the rest draw a plate rather than reflow the page
+around a gap. The images are hotlinked from the wiki's CDN at render time,
+never cached, and the URL is derived rather than looked up: md5 of the
+filename gives the shard it lives in.
+
+**A picker you can read.** Eighteen records are headlined exactly
+"Spider-Man". The terminal can list them; the page shows each one's art, its
+reality and its first appearance, so choosing between them does not require
+already knowing which Earth you meant.
+
+**The whole field.** Wolverine's Powers field is 3,000 characters. The
+terminal truncates it. The page folds it into a `<details>` you can open,
+which is most of why it exists.
+
+**The conversation.** Every turn stays on the page, and clicking an earlier
+one brings that record - and its art - back. The session lives in the
+browser, so a reload does not lose it.
+
+It binds to 127.0.0.1 and is meant for the machine it runs on: there is no
+authentication, and nothing about it expects the open internet.
+
 ## Install
 
 EDITH installs with [uv]. If you do not already have it, on macOS or Linux:
