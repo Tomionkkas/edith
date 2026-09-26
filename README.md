@@ -18,14 +18,14 @@ interesting one.
 ## What it looks like
 
 ```
-even dead i'm the hero · 250M · 202,171 records indexed
+even dead i'm the hero · 250M · 202,155 records indexed
   [plain]   /theme to change   /help
 ──────────────────────────────────────────────────────────────────────────────
 
 ▌ you
   who is curtis connors
 
-  ▸ searched 202,171 records — 1 caught · 2 ms
+  ▸ searched 202,155 records — 1 caught · 2 ms
 
 ▌ edith
   Curtis Connors  [Earth-616]
@@ -50,6 +50,44 @@ Boot, `who is curtis connors`, `/theme moon-knight`, `who is marc spector`.
 A theme changes the colour, the emblem, the rule, the retrieval verb and the
 speaker's name - never an answer.
 
+## The web app
+
+```bash
+edith --web                    # then open http://127.0.0.1:8420
+edith --web --port 9001        # if something already has that port
+```
+
+The same EDITH rendered as a page: one flag, no framework, no build step, no
+dependency the terminal does not already have. It calls the same
+`engine.plan()` the terminal calls, so the two cannot drift - everything in
+`infer/web.py` is transport.
+
+What the page has that a terminal cannot:
+
+**The art.** Every answer carries the record's own cover or portrait, keyed
+on the record that ANSWERED rather than on the words you typed - so Miles
+Morales shows Miles, and the Ultimate Spider-Man shows the Ultimate one.
+95.2% of records have art; the rest draw a plate rather than reflow the page
+around a gap. The images are hotlinked from the wiki's CDN at render time,
+never cached, and the URL is derived rather than looked up: md5 of the
+filename gives the shard it lives in.
+
+**A picker you can read.** Eighteen records are headlined exactly
+"Spider-Man". The terminal can list them; the page shows each one's art, its
+reality and its first appearance, so choosing between them does not require
+already knowing which Earth you meant.
+
+**The whole field.** Wolverine's Powers field is 3,000 characters. The
+terminal truncates it. The page folds it into a `<details>` you can open,
+which is most of why it exists.
+
+**The conversation.** Every turn stays on the page, and clicking an earlier
+one brings that record - and its art - back. The session lives in the
+browser, so a reload does not lose it.
+
+It binds to 127.0.0.1 and is meant for the machine it runs on: there is no
+authentication, and nothing about it expects the open internet.
+
 ## Install
 
 EDITH installs with [uv]. If you do not already have it, on macOS or Linux:
@@ -129,6 +167,7 @@ clone is already running the code you changed.
 edith                          # anywhere
 edith --ask "who is thor"      # one question, then exit
 edith --theme hulk             # start in a given skin
+edith --web                    # the page, on 127.0.0.1:8420
 ```
 
 Inside the terminal: type a question. `/theme [name]` switches the skin
@@ -145,7 +184,7 @@ honestly. `NO_COLOR` turns it off entirely.
 
 ## How it works
 
-**Corpus.** 202,171 records - characters, teams, locations, items, events,
+**Corpus.** 202,155 records - characters, teams, locations, items, events,
 comics - crawled from Marvel Database (marvel.fandom.com) and English
 Wikipedia. Each record is two layers: schema lines (`Page:`, `Created by:`,
 `Real name:`, `Codename:`, `Reality:`, ...) above prose under `History:`.
@@ -243,11 +282,13 @@ commands in `MEASUREMENTS.md`:
 | `train/` | the trainer, perplexity evaluation, tokenizer training, packing |
 | `crawl/` | the Fandom and Wikipedia crawlers and curators that built the corpus |
 | `release/` | safetensors conversion, the fp16/fp32 comparison, the export tool that built this tree |
+| `infer/web/` | the page `edith --web` serves: one HTML file, one stylesheet, one script |
 | `tokenizer/` | `marvel_bpe_50257`, the trained BPE model in use |
 
 The weights, the corpus and the two indexes are not in this repo and never
-land in it: they are fetched or built into `~/.edith` on first run (see
-`paths.py` and `bootstrap.py`). A clone from before that was true keeps
+land in it. An installed EDITH fetches or builds them into `~/.edith` on
+first run; a clone keeps them beside the code, where the training and index
+scripts write them (see `paths.py`). A clone from before that was true keeps
 working - the artefacts beside it are moved in rather than downloaded again.
 
 ## Licenses and credit

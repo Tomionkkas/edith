@@ -94,6 +94,23 @@ class Answer(unittest.TestCase):
         term.images = {}
         self.assertEqual(W.answer(term, "hi")["images"], [])
 
+    def test_an_empty_question_is_not_handed_to_the_model(self):
+        """FOUND 2026-09-26 by poking /ask from curl with the wrong field
+        name, so the question arrived as "": the model was asked to continue
+        nothing and invented a paragraph about Rocket Raccoon Vol 2 6, which
+        the page would have rendered as an answer. The browser never sends
+        one - but an endpoint on localhost answers whoever asks."""
+        term = FakeTerm(FakePlan(text=None, prompt="Context:"))
+        for nothing in ("", "   ", "\n\t "):
+            out = W.answer(term, nothing)
+            self.assertEqual(out["answer"], "")
+            self.assertIsNone(out["page"])
+            self.assertIsNone(term.last_plan_args,
+                              "the engine was called for an empty question")
+        # Same keys as a real turn, or the page renders around a hole.
+        real = W.answer(FakeTerm(FakePlan(text="x", doc_id=0)), "who is wolverine")
+        self.assertEqual(set(W.answer(term, "").keys()), set(real.keys()))
+
     def test_nothing_retrieved_still_answers(self):
         out = W.answer(FakeTerm(FakePlan(text="I don't have that.")),
                        "who is zarblaxian")

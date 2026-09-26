@@ -167,6 +167,15 @@ def others_of(term, question, exclude, images, limit=24) -> list:
     return out
 
 
+def _empty() -> dict:
+    """A turn that asked nothing, in the shape the page renders from."""
+    return {"answer": "", "doc_id": None, "headline": None, "page": None,
+            "kind": None, "size": 0, "fields": [], "quoted": None,
+            "quoted_leads": False, "exhausted": False, "corrected": None,
+            "images": [], "choices": None, "others": None,
+            "first_appearance": None, "variants_total": 0}
+
+
 def answer(term, question, previous=None, settled=None) -> dict:
     """One turn, as JSON the page can render.
 
@@ -175,6 +184,14 @@ def answer(term, question, previous=None, settled=None) -> dict:
     the record the last turn resolved instead of resolving the pronoun.
     """
     images = _images()
+    if not question.strip():
+        # The model is a continuation engine: asked to continue nothing it
+        # invents something, and the page would render it as an answer.
+        # MEASURED 2026-09-26 against the real endpoint - a request whose
+        # question arrived empty came back with a paragraph about a comic
+        # nobody had mentioned. The browser never sends one; an endpoint
+        # answers whoever asks.
+        return _empty()
     with LOCK:
         plan = term.engine.plan(question, term.index, term.sft, term.search,
                                 term.disambiguate, term.facts, term.resolve,
