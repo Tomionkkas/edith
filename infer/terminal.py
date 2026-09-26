@@ -25,7 +25,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 # The data directory, loaded by file path like bootstrap.py itself is - see
 # bootstrap.py. Constants only, so re-executing it per module costs nothing.
-_paths_spec = importlib.util.spec_from_file_location("edith_paths", ROOT / "paths.py")
+_paths_spec = importlib.util.spec_from_file_location(
+    "edith_paths", ROOT / "paths.py")
 paths = importlib.util.module_from_spec(_paths_spec)
 _paths_spec.loader.exec_module(paths)
 
@@ -83,17 +84,41 @@ so nothing needs to download for this. It rebuilds locally from the corpus
 you already have, in about 30 seconds.
 """
 
+# Nothing is MISSING, but something is out of date: a corpus older than the
+# one this build expects, or an index older than the corpus beside it.
+# Neither was reachable before 2026-09-26 - offer_bootstrap() returned early
+# whenever every file was present, and fetch_all() is the only caller of
+# index_stale() - so an install kept whatever it first downloaded and nothing
+# ever said so.
+STALE = """EDITH can start, but what it would answer from is out of date:
+
+  {what}
+
+{mb}"""
+
+# Staleness must never BLOCK: EDITH answers perfectly well from last
+# month's corpus, and a non-interactive caller - run_cases, --ask, --web -
+# would otherwise refuse to start the day a new corpus is published.
+STALE_DECLINED = """
+Carrying on with what you have. To take the update:
+
+    py install.py          (Windows)
+    python3 install.py     (macOS / Linux)
+"""
+
 DECLINED = """
 No problem. When you want them:
 
-    edith                  run it again and say yes
+    py install.py          (Windows)
+    python3 install.py     (macOS / Linux)
 """
 
 FETCH_FAILED = """
 That did not finish: {error}
 
 What already downloaded is kept - running EDITH again resumes rather than
-starting over.
+starting over. py install.py does the same job with more output along the
+way.
 """
 
 STILL_MISSING = """
@@ -101,8 +126,7 @@ Still missing after fetching:
 
   {missing}
 
-Something did not arrive. Running edith again retries. Deleting the data
-directory (~/.edith, or wherever EDITH_HOME points) forces a clean re-fetch.
+Something did not arrive. Try again, or py install.py for more detail.
 """
 
 
@@ -204,6 +228,10 @@ class Terminal:
         # and appending inside ask() would fill /history with a question the
         # user never typed, hiding the one they did.
         self.history = []
+        # doc id -> sentences of that record already quoted, so "go on" reads
+        # the NEXT ones. Owned here and handed to plan(), exactly as
+        # self.settled is (4.17).
+        self.shown = {}
 
     # -- boot ---------------------------------------------------------------
 
@@ -220,10 +248,12 @@ class Terminal:
         """
         # A clone from before the data directory existed has the artefacts
         # beside the code. Move them in before deciding anything is missing,
-        # or a `git pull` reads as an 800 MB re-download.
+        # or a `git pull` reads as an 800 MB re-download. In a checkout the
+        # two locations are the same path, so this is a handful of exists()
+        # calls and nothing moves.
         bootstrap.migrate_legacy()
         gone = bootstrap.missing(self.ckpt)
-        if not gone:
+        if not gone and not bootstrap.work_pending(self.ckpt):
             return True
 
         def name(p):
@@ -234,18 +264,36 @@ class Terminal:
             except ValueError:
                 return str(p)
 
-        names = "\n  ".join(name(p) for p in gone)
         mb = bootstrap.download_mb(self.ckpt)
-        if mb:
-            print(MISSING.format(missing=names, mb=mb))
+        if gone:
+            names = "\n  ".join(name(p) for p in gone)
+            if mb:
+                print(MISSING.format(missing=names, mb=mb))
+            else:
+                print(NOTHING_TO_DOWNLOAD.format(missing=names))
         else:
-            print(NOTHING_TO_DOWNLOAD.format(missing=names))
+            # Everything is present and something is still out of date. This
+            # branch was unreachable until 2026-09-26: the method returned
+            # early whenever nothing was absent.
+            what = []
+            if bootstrap.corpus_outdated():
+                what.append(f"the corpus, v{bootstrap.corpus_version()} on "
+                            f"disk against v{bootstrap.CORPUS_VERSION} for "
+                            f"this build")
+            if bootstrap.index_stale():
+                what.append("the index, older than the corpus beside it")
+            print(STALE.format(
+                what="\n  ".join(what),
+                mb=(f"That is {mb} MB to download, then about 30 seconds to "
+                    "rebuild the index.\n" if mb else
+                    "Nothing to download - the index rebuilds locally from "
+                    "the corpus you already have, in about 30 seconds.\n")))
 
         # run_cases.py drives this as a subprocess: prompting a closed stdin
         # hangs the harness or raises EOFError inside a measurement.
         if not sys.stdin.isatty():
-            print(DECLINED)
-            return False
+            print(DECLINED if gone else STALE_DECLINED)
+            return not gone
 
         try:
             answer = input("  Fetch them now? [y/N] ").strip().lower()
@@ -257,8 +305,10 @@ class Terminal:
             # decision.
             answer = "n"
         if answer not in ("y", "yes"):
-            print(DECLINED)
-            return False
+            print(DECLINED if gone else STALE_DECLINED)
+            # Nothing was MISSING, only out of date: that is a reason to
+            # mention it, never a reason to refuse to run.
+            return not gone
 
         print()
         try:
@@ -435,7 +485,8 @@ class Terminal:
         start = time.perf_counter()
         plan = self.engine.plan(question, self.index, self.sft, self.search,
                                 self.disambiguate, self.facts, self.resolve,
-                                previous=self.last_doc, settled=self.settled)
+                                previous=self.last_doc, settled=self.settled,
+                                shown=self.shown)
         found = time.perf_counter() - start
         # Set BEFORE the choices branch's early return, and unconditionally
         # (including None) - this turn's own outcome, for /history.
@@ -867,6 +918,10 @@ def build_parser() -> argparse.ArgumentParser:
     # arguments" instead of doing nothing.
     ap.add_argument("--no-anim", action="store_true",
                     help="print everything at once, with no motion")
+    ap.add_argument("--web", action="store_true",
+                    help="serve the page on localhost instead of the REPL")
+    ap.add_argument("--port", type=int, default=8420,
+                    help="port for --web (default 8420)")
     return ap
 
 
@@ -881,6 +936,27 @@ def main(argv=None) -> int:
     term = Terminal(args.theme, Path(args.ckpt), trace=args.trace)
     if not term.boot():
         return 1
+    if args.web:
+        # Same booted engine, a second renderer. The images sidecar is a
+        # garnish: without it the page answers with no art rather than
+        # refusing to start.
+        import gzip as _gzip
+        import json as _json
+        images = _load("images", "retrieve/images.py")
+        web = _load("web", "infer/web.py")
+        term.images = images.load()
+        # The legacy sidecar: name -> everyone who has GONE BY it. Optional,
+        # like the images one; without it the picker's second group falls
+        # back to the names index and shows fewer.
+        legacy_path = ROOT / "retrieve" / "legacy.json.gz"
+        term.legacy = (_json.loads(
+            _gzip.decompress(legacy_path.read_bytes()).decode("utf-8"))
+            if legacy_path.exists() else {})
+        if not term.images:
+            print("  no retrieve/images.json.gz - answers will have no art")
+            print("  build it with: py crawl/build_images.py  (needs raw/)")
+        return web.serve(term, port=args.port)
+
     if args.ask:
         print()
         print(render.speaker(term.theme, "you", term.theme.accent))

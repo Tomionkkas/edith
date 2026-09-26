@@ -121,12 +121,104 @@ class TheQuoteLeadsOnNarrativeAsks(unittest.TestCase):
         self.assertTrue(E.passage_leads("what happened in the civil war"))
         self.assertTrue(E.passage_leads("how did nitro die"))
 
-    def test_a_thin_profile_keeps_its_answer_first(self):
-        self.assertFalse(E.passage_leads("tell me about the civil war"))
+    def test_a_one_row_profile_does_not_keep_its_place(self):
+        """REVISED 2026-09-26, from the web app where it is unmissable.
+
+        4.5b held that a thin profile answer "is still an answer to what was
+        asked" and kept it above the passage. On screen, for an EVENT, that
+        answer is:
+
+            Civil War (Event) is from Earth-616. Civil War (Event) first
+            appeared in Civil War Vol 1 1.
+
+        which is the bibliographic credit the 69% finding was about, wearing
+        a different hat. One row is not an answer to `tell me about the civil
+        war`; it is the absence of one. Two rows or more still leads, because
+        then it is a profile.
+        """
+        self.assertTrue(E.passage_leads("tell me about the civil war",
+                                        "Civil War (Event) is from Earth-616.",
+                                        [("First appearance", "Civil War Vol 1 1")]))
+
+    def test_a_real_profile_still_answers_first(self):
+        """A character card is an answer to `tell me about X`, so it keeps
+        its place and the passage follows it."""
+        rows = [("Full name", "Jean Grey"), ("First appearance", "X-Men 1"),
+                ("Created by", "Stan Lee"), ("Powers", "Telepathy")]
+        self.assertFalse(E.passage_leads("tell me about jean grey",
+                                         "Jean Grey's real name is...", rows))
+
+    def test_an_event_asked_about_tells_its_story(self):
+        """MEASURED 2026-09-26 in the web app. `tell me about secret wars`
+        renders three fields - reality, creators, first appearance - so
+        nothing looks thin, no passage is attached, and the answer is:
+
+            Secret Wars (2015 Event) is from Earth-15513. Secret Wars (2015
+            Event) was created by Jonathan Hickman and Esad Ribic and first
+            appeared in Free Comic Book Day 2015 (Secret Wars) Vol 1 1.
+
+        Every word of that is true and none of it is what was asked. An
+        EVENT's fields are inherently bibliographic - a story has no eye
+        colour - so for an event the story IS the profile.
+        """
+        rows = [("Reality", "Earth-15513"), ("Created by", "Jonathan Hickman"),
+                ("First appearance", "Free Comic Book Day 2015 Vol 1 1")]
+        self.assertTrue(E.wants_passage("tell me about secret wars",
+                                        "Secret Wars is from Earth-15513...",
+                                        rows, kind="event"))
+        self.assertTrue(E.passage_leads("tell me about secret wars",
+                                        "Secret Wars is from Earth-15513...",
+                                        rows, kind="event"))
+
+    def test_a_character_profile_is_not_an_event(self):
+        """The same three rows on a CHARACTER keep their place: a profile
+        answers `tell me about X`, a bibliography does not."""
+        rows = [("Full name", "Jean Grey"), ("Created by", "Stan Lee"),
+                ("First appearance", "X-Men Vol 1 1")]
+        self.assertFalse(E.passage_leads("tell me about jean grey",
+                                         "Jean Grey's real name is Jean Grey...",
+                                         rows, kind="character"))
+
+    def test_the_question_alone_still_decides_a_narrative_ask(self):
+        self.assertTrue(E.passage_leads("what happened in the civil war"))
 
     def test_a_field_question_never_leads_with_a_quote(self):
         self.assertFalse(E.passage_leads("who created spider-man"))
         self.assertFalse(E.passage_leads("when did blade first appear"))
+
+
+class GoingOnAcrossTurns(unittest.TestCase):
+    """`shown` is to passages what `settled` is to the picker: a dict the
+    CALLER owns, the engine reads and writes, and both renderers keep one of.
+
+    Without it, asking `explain in more detail` twice reads the same
+    paragraph twice - measured in the web app 2026-09-26.
+    """
+
+    def test_a_follow_up_naming_nobody_advances(self):
+        shown = {}
+        self.assertEqual(E.passage_skip("what happened in the civil war",
+                                        doc_id=7, shown=shown,
+                                        query_key=lambda q: ("civil", "war")), 0)
+        shown[7] = 3
+        self.assertEqual(E.passage_skip("go on", doc_id=7, shown=shown,
+                                        query_key=lambda q: ()), 3)
+
+    def test_a_question_that_names_somebody_starts_over(self):
+        """A new subject is a new question, not a continuation."""
+        shown = {7: 3}
+        self.assertEqual(E.passage_skip("who is wolverine", doc_id=7,
+                                        shown=shown,
+                                        query_key=lambda q: ("wolverine",)), 0)
+
+    def test_no_shown_dict_is_the_old_behaviour(self):
+        self.assertEqual(E.passage_skip("go on", doc_id=7, shown=None,
+                                        query_key=lambda q: ()), 0)
+
+    def test_a_different_record_starts_over(self):
+        shown = {7: 3}
+        self.assertEqual(E.passage_skip("go on", doc_id=9, shown=shown,
+                                        query_key=lambda q: ()), 0)
 
 
 class TheQuoteLooksQuoted(unittest.TestCase):

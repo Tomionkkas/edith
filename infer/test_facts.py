@@ -407,12 +407,7 @@ class ProfileRowsGetTheSameHygieneAsAFieldAnswer(unittest.TestCase):
         self.assertGreater(len(first), F.ANSWER_CHARS)
 
 
-_paths_spec = importlib.util.spec_from_file_location(
-    "edith_paths", ROOT / "paths.py")
-paths = importlib.util.module_from_spec(_paths_spec)
-_paths_spec.loader.exec_module(paths)
-
-CURATED = paths.CORPUS / "characters.txt"
+CURATED = ROOT / "curated" / "characters.txt"
 
 
 class ProfileFieldsExistInTheCorpus(unittest.TestCase):

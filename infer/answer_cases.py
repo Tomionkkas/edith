@@ -377,4 +377,125 @@ CASES = [
                "('Unbeatable Squirrel Girl Vol 2 40; Squirrel Powers: ...'), "
                "which is a reference that survived curation.",
     },
+
+    # ------------------------------ the picker, from a live run (2026-09-20)
+    #
+    # Added because the set above could not decide the picker question. A
+    # live run of 260 sampled questions measured 17.6% of them answered with
+    # a menu instead of a fact, and the case everyone agreed was wrong -
+    # `who is wolverine` - was not in this file at all, so the sweep that was
+    # supposed to choose a threshold could not see it. docs/HANDOFF.md, "the
+    # actual next step". Every one of these was RESOLVED correctly and then
+    # hidden behind a menu, except the four that genuinely should offer.
+    #
+    # The ratios below are measured, not estimated: each is the top record's
+    # size over the runner-up's as confidence() computes it today.
+    {
+        "ask": ["who is wolverine"],
+        "page": "James Howlett (Earth-616)",
+        "must_include": ["howlett"],
+        "must_not_include": [],
+        "why": "THE case. Reads 1.43 because confidence() contests Akihiro "
+               "(96,637 ch) and Laura Kinney (83,080 ch), which hold "
+               "'Wolverine' as an ALIAS and cannot be returned by resolve() "
+               "at all - it returns entries[0], James Howlett at 138,242. "
+               "Nobody thinks a menu is the right answer to this.",
+    },
+    {
+        "ask": ["who is thor"],
+        "page": "Thor Odinson (Earth-616)",
+        "must_include": ["odinson"],
+        "must_not_include": [],
+        "why": "Same shape, different rivals: 2.82 against Loki (41,775 ch, "
+               "who has carried the name) and Jane Foster (26,423 ch, who "
+               "has too). Both are real Thors and neither is who is meant.",
+    },
+    {
+        "ask": ["who is venom"],
+        "page": "Venom (Symbiote) (Earth-616)",
+        "must_include": ["symbiote"],
+        "must_not_include": [],
+        "why": "1.28 against Eddie Brock (79,413 ch) and Otto Octavius "
+               "(72,296 ch), both HOSTS. Venom is the symbiote - the record "
+               "resolve() returns - and Brock has his own case above, so "
+               "this asserts the distinction rather than assuming it.",
+    },
+    {
+        "ask": ["who is moon knight"],
+        "page": "Marc Spector (Earth-616)",
+        "must_include": ["spector"],
+        "must_not_include": [],
+        "why": "2.12 against Maximillian Coleridge (26,322 ch), the "
+               "Earth-616 Moon Knight of 2099. One is the Moon Knight.",
+    },
+    {
+        "ask": ["who is iron man"],
+        "page": "Anthony Stark (Earth-616)",
+        "must_include": ["stark"],
+        "must_not_include": [],
+        "why": "1.001, and the runner-up is Anthony Stark (Earth-616) - the "
+               "corpus holds the record TWICE, 104,964 and 104,812 "
+               "characters, under two doc ids. Deduping by doc id cannot see "
+               "it; the two really are different documents. A near-duplicate "
+               "of the winner is the one rival that is never a rival.",
+    },
+    {
+        "ask": ["who is daredevil"],
+        "page": "Matthew Murdock (Earth-616)",
+        "must_include": ["murdock"],
+        "must_not_include": [],
+        "why": "1.76 against Brian Braddock (42,778 ch), who holds "
+               "'Daredevil' as an alias, and Elektra (34,687 ch), who held "
+               "the name briefly. Matt Murdock is Daredevil.",
+    },
+    {
+        "ask": ["who is black panther"],
+        "page": "T'Challa (Earth-616)",
+        "must_include": ["wakanda"],
+        "must_not_include": [],
+        "why": "1.91 against Killmonger (39,703 ch) and Shuri (15,729 ch). "
+               "Both have worn it; the title means T'Challa.",
+    },
+    {
+        "ask": ["who is ghost rider"],
+        "page": None,
+        "expect": "picker",
+        "must_include": [],
+        "must_not_include": [],
+        "why": "A must-OFFER that is not a Spider-Man. Johnny Blaze (57,708 "
+               "ch) and Danny Ketch (27,907 ch) are both headlined Ghost "
+               "Rider and both hold it as identity, not alias. Without cases "
+               "like this one the set can be maximised by never offering, "
+               "which is not the behaviour anyone wants.",
+    },
+    {
+        "ask": ["who is ant-man"],
+        "page": None,
+        "expect": "picker",
+        "must_include": [],
+        "must_not_include": [],
+        "why": "The strongest must-offer in the set: resolve() returns Scott "
+               "Lang (20,182 ch) while Hank Pym (39,841 ch) is twice the "
+               "size, and a reader asking this means one or the other with "
+               "no way to tell which.",
+    },
+    {
+        "ask": ["who is the human torch"],
+        "page": None,
+        "expect": "picker",
+        "must_include": [],
+        "must_not_include": [],
+        "why": "Johnny Storm (40,403 ch) and Jim Hammond (37,948 ch), the "
+               "1939 android who had the name first. Both identity, 1.07 "
+               "apart - the ambiguity is real and the sizes agree.",
+    },
+    {
+        "ask": ["who is hawkeye"],
+        "page": None,
+        "expect": "picker",
+        "must_include": [],
+        "must_not_include": [],
+        "why": "Clint Barton (36,230 ch) and Kate Bishop (32,129 ch). Both "
+               "are Hawkeye, both current, 1.13 apart.",
+    },
 ]

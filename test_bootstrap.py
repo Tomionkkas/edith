@@ -1,11 +1,13 @@
 """Tests for the shared fetch.
 
-terminal.py's first run bootstraps through this module. The risk it guards is
+install.py and terminal.py both bootstrap. The risk this file guards is
 drift: two fetchers naming two repos, or one of them pulling the whole model
 repo and dragging stage 2's spare gigabyte along.
 """
 import importlib.util
 import sys
+
+import pytest
 import types
 from pathlib import Path
 
@@ -105,8 +107,16 @@ def test_partial_corpus_triggers_fetch(monkeypatch, tmp_path):
     monkeypatch.setattr(B, "fetch_corpus", lambda: called.append("c"))
     monkeypatch.setattr(B, "build_index", lambda: called.append("i"))
     B.fetch_all(log=lambda *a: None)
-    # With the fix, fetch_corpus should be called because corpus is incomplete
-    assert called == ["c"]
+    # fetch_corpus because the corpus is incomplete, then build_index
+    # because it was re-fetched.
+    #
+    # REVISED 2026-09-26: this asserted ["c"] and passed only because the
+    # MOCKED fetch lays down no files, so index_stale() still saw an
+    # incomplete corpus and said False. In production the freshly downloaded
+    # files are newer than the index and it rebuilt anyway - the old
+    # expectation was pinning an artefact of the mock, not the behaviour.
+    # fetch_all() no longer leaves that to mtimes.
+    assert called == ["c", "i"]
 
 
 def test_download_mb_totals_weights_and_corpus_when_both_are_missing(monkeypatch, tmp_path):
@@ -128,6 +138,10 @@ def test_download_mb_is_zero_when_only_the_index_is_missing(monkeypatch, tmp_pat
     B.CORPUS.mkdir()
     for name in B.CORPUS_FILES:
         (B.CORPUS / name).write_text("x")
+    # A corpus on disk means a CURRENT corpus unless a test says otherwise.
+    # Without this every test written before CORPUS_VERSION existed reads as
+    # version 1 and reports an update pending the moment the constant moves.
+    (B.CORPUS / "CORPUS_VERSION").write_text(str(B.CORPUS_VERSION))
     assert B.download_mb() == 0
 
 
@@ -137,6 +151,10 @@ def test_download_mb_counts_only_the_weights_when_only_they_are_missing(monkeypa
     B.CORPUS.mkdir()
     for name in B.CORPUS_FILES:
         (B.CORPUS / name).write_text("x")
+    # A corpus on disk means a CURRENT corpus unless a test says otherwise.
+    # Without this every test written before CORPUS_VERSION existed reads as
+    # version 1 and reports an update pending the moment the constant moves.
+    (B.CORPUS / "CORPUS_VERSION").write_text(str(B.CORPUS_VERSION))
     assert B.download_mb() == B.WEIGHTS_MB
 
 
@@ -150,6 +168,10 @@ def test_download_mb_reports_the_checkpoint_it_was_given(monkeypatch, tmp_path):
     B.CORPUS.mkdir()
     for name in B.CORPUS_FILES:
         (B.CORPUS / name).write_text("x")
+    # A corpus on disk means a CURRENT corpus unless a test says otherwise.
+    # Without this every test written before CORPUS_VERSION existed reads as
+    # version 1 and reports an update pending the moment the constant moves.
+    (B.CORPUS / "CORPUS_VERSION").write_text(str(B.CORPUS_VERSION))
     nope = tmp_path / "nope.pt"
     assert B.download_mb(nope) == B.WEIGHTS_MB
 
@@ -166,6 +188,10 @@ def test_fetch_all_skips_what_is_already_there(monkeypatch, tmp_path):
     B.CORPUS.mkdir()
     for name in B.CORPUS_FILES:
         (B.CORPUS / name).write_text("x")
+    # A corpus on disk means a CURRENT corpus unless a test says otherwise.
+    # Without this every test written before CORPUS_VERSION existed reads as
+    # version 1 and reports an update pending the moment the constant moves.
+    (B.CORPUS / "CORPUS_VERSION").write_text(str(B.CORPUS_VERSION))
     # The index is built AFTER the corpus is fetched, so in a healthy install
     # it is always the newer file. This setup wrote it first, which made the
     # corpus strictly newer and - once fetch_all started checking freshness
@@ -186,8 +212,8 @@ def test_fetch_weights_recovers_when_hub_names_are_still_none(monkeypatch, tmp_p
 
     bootstrap.py imports hf_hub_download/snapshot_download at module level
     inside a try/except ImportError, binding both to None when
-    huggingface_hub is absent - deliberately, so bootstrap.py stays
-    importable before its dependencies exist. The installer then
+    huggingface_hub is absent - deliberately, so install.py can import
+    bootstrap.py BEFORE pip has installed anything. install.py then
     pip-installs huggingface_hub and calls bootstrap.fetch_all() in the SAME
     process, where the names are still None: installing a package does not
     rebind a name that was already resolved to None at import time.
@@ -219,7 +245,7 @@ def test_fetch_weights_recovers_when_hub_names_are_still_none(monkeypatch, tmp_p
         hf_hub_download=fake_hf_hub_download,
         snapshot_download=lambda *a, **kw: None,
     )
-    # huggingface_hub "becomes" importable, as it would after an install's
+    # huggingface_hub "becomes" importable, as it would after install.py's
     # pip install - without actually installing or importing the real thing.
     monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 
@@ -259,6 +285,10 @@ def _legacy(monkeypatch, tmp_path):
     (clone / "retrieve" / "names.pkl").write_text("names")
     for name in B.CORPUS_FILES:
         (clone / "curated" / name).write_text("x")
+    # Current, so this measures migration and not 4.18: a corpus with no
+    # marker reads as v1, and against a build expecting v2 that is a
+    # legitimate 296 MB update rather than anything migration caused.
+    (clone / "curated" / "CORPUS_VERSION").write_text(str(B.CORPUS_VERSION))
     monkeypatch.setattr(B, "ROOT", clone)
     monkeypatch.setattr(B, "WEIGHTS", data / "checkpoints" / "model.safetensors")
     monkeypatch.setattr(B, "CONFIG_JSON", data / "checkpoints" / "config.json")
@@ -338,6 +368,10 @@ def _corpus(tmp_path, monkeypatch):
     B.CORPUS.mkdir()
     for name in B.CORPUS_FILES:
         (B.CORPUS / name).write_text("x")
+    # A corpus on disk means a CURRENT corpus unless a test says otherwise.
+    # Without this every test written before CORPUS_VERSION existed reads as
+    # version 1 and reports an update pending the moment the constant moves.
+    (B.CORPUS / "CORPUS_VERSION").write_text(str(B.CORPUS_VERSION))
 
 
 def test_a_corpus_newer_than_the_index_is_stale(monkeypatch, tmp_path):
@@ -386,3 +420,215 @@ def test_fetch_all_rebuilds_a_stale_index(monkeypatch, tmp_path):
     monkeypatch.setattr(B, "build_index", lambda: called.append("i"))
     B.fetch_all(log=lambda *a: None)
     assert called == ["i"]
+
+
+# ---------------------------------------------------------- CORPUS_VERSION
+#
+# `corpus_complete()` is an existence check, so once the files are on disk
+# nothing re-fetches them: an install keeps the corpus it first downloaded
+# for ever, and 4.14's events, 4.14b's 53 recovered ones and B3 never reach
+# anybody. index_stale() fixed "the corpus on disk changed"; this is "the
+# corpus on HF changed", which no mtime can see.
+#
+# The marker ships INSIDE the dataset, so the comparison is a local file
+# against a constant in the code and no network call is needed to ask the
+# question. A corpus with no marker predates the mechanism and reads as
+# version 1 - NOT as zero. Reading it as zero would tell every existing
+# install, including one whose corpus is newer than the published one, to
+# overwrite it with the download.
+
+
+def test_a_corpus_with_no_marker_is_the_first_version(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    (B.CORPUS / "CORPUS_VERSION").unlink()      # as every pre-4.18 install is
+    assert B.corpus_version() == 1
+
+
+def test_a_marker_is_read(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    (B.CORPUS / "CORPUS_VERSION").write_text("4\n")
+    assert B.corpus_version() == 4
+
+
+def test_a_damaged_marker_reads_as_the_first_version(monkeypatch, tmp_path):
+    """A half-written file must not crash a launch, and must not claim to be
+    newer than it is."""
+    _corpus(tmp_path, monkeypatch)
+    (B.CORPUS / "CORPUS_VERSION").write_text("not a number")
+    assert B.corpus_version() == 1
+
+
+def test_a_corpus_older_than_the_code_is_outdated(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    monkeypatch.setattr(B, "CORPUS_VERSION", 3)
+    (B.CORPUS / "CORPUS_VERSION").write_text("2")
+    assert B.corpus_outdated() is True
+
+
+def test_a_matching_corpus_is_current(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    monkeypatch.setattr(B, "CORPUS_VERSION", 2)
+    (B.CORPUS / "CORPUS_VERSION").write_text("2")
+    assert B.corpus_outdated() is False
+
+
+def test_a_newer_corpus_than_the_code_is_left_alone(monkeypatch, tmp_path):
+    """An old build must never pull a NEW corpus backwards. The user who
+    curated locally has exactly this shape."""
+    _corpus(tmp_path, monkeypatch)
+    monkeypatch.setattr(B, "CORPUS_VERSION", 1)
+    (B.CORPUS / "CORPUS_VERSION").write_text("9")
+    assert B.corpus_outdated() is False
+
+
+def test_an_incomplete_corpus_is_not_outdated(monkeypatch, tmp_path):
+    """fetch_corpus() owns that case, the same way index_stale() defers."""
+    monkeypatch.setattr(B, "CORPUS", tmp_path / "curated")
+    monkeypatch.setattr(B, "CORPUS_VERSION", 3)
+    B.CORPUS.mkdir()
+    (B.CORPUS / "CORPUS_VERSION").write_text("1")
+    assert B.corpus_outdated() is False
+
+
+def test_fetch_all_refetches_an_outdated_corpus(monkeypatch, tmp_path):
+    """The whole point: a corpus that is complete but old still comes down."""
+    called = []
+    _corpus(tmp_path, monkeypatch)
+    B.INDEX.write_text("x")
+    monkeypatch.setattr(B, "CORPUS_VERSION", 5)
+    (B.CORPUS / "CORPUS_VERSION").write_text("4")
+    monkeypatch.setattr(B, "fetch_weights", lambda: called.append("w"))
+    monkeypatch.setattr(B, "fetch_corpus", lambda: called.append("c"))
+    monkeypatch.setattr(B, "build_index", lambda: called.append("i"))
+    B.fetch_all(log=lambda *a: None)
+    assert "c" in called
+
+
+def test_download_mb_counts_an_outdated_corpus(monkeypatch, tmp_path):
+    """Asking to approve 0 MB and then pulling 296 is how trust is lost."""
+    _corpus(tmp_path, monkeypatch)
+    weights = tmp_path / "w.safetensors"
+    weights.write_text("x")
+    monkeypatch.setattr(B, "CORPUS_VERSION", 2)
+    (B.CORPUS / "CORPUS_VERSION").write_text("1")
+    assert B.download_mb(weights) == B.CORPUS_MB
+
+
+def test_work_pending_sees_what_missing_cannot(monkeypatch, tmp_path):
+    """offer_bootstrap() returns early when nothing is MISSING, so neither a
+    stale index nor an outdated corpus was ever reachable from a normal
+    launch - fetch_all() is only called when a file is absent. Found
+    2026-09-26 while wiring CORPUS_VERSION."""
+    _corpus(tmp_path, monkeypatch)
+    B.INDEX.write_text("x")
+    weights = tmp_path / "w.safetensors"
+    weights.write_text("x")
+    monkeypatch.setattr(B, "CORPUS_VERSION", 2)
+    (B.CORPUS / "CORPUS_VERSION").write_text("1")
+    assert B.missing(weights) == []
+    assert B.work_pending(weights) is True
+
+
+def test_nothing_pending_when_everything_is_current(monkeypatch, tmp_path):
+    _corpus(tmp_path, monkeypatch)
+    weights = tmp_path / "w.safetensors"
+    weights.write_text("x")
+    import os
+    import time
+    older = time.time() - 10
+    for name in B.CORPUS_FILES:
+        os.utime(B.CORPUS / name, (older, older))
+    B.INDEX.write_text("x")
+    monkeypatch.setattr(B, "CORPUS_VERSION", 1)
+    assert B.work_pending(weights) is False
+
+
+def test_a_refetched_corpus_always_rebuilds_the_index(monkeypatch, tmp_path):
+    """Not `index_stale()` alone: that is an mtime comparison, and nothing
+    here knows what the hub writes. A preserved timestamp would leave a NEW
+    corpus behind an index built from the OLD one - worse than not updating.
+    """
+    called = []
+    _corpus(tmp_path, monkeypatch)
+    B.INDEX.write_text("x")
+    import os, time
+    newer = time.time() + 60          # index looks FRESHER than the corpus
+    os.utime(B.INDEX, (newer, newer))
+    monkeypatch.setattr(B, "CORPUS_VERSION", 5)
+    (B.CORPUS / "CORPUS_VERSION").write_text("4")
+    monkeypatch.setattr(B, "fetch_weights", lambda: called.append("w"))
+    monkeypatch.setattr(B, "fetch_corpus", lambda: called.append("c"))
+    monkeypatch.setattr(B, "build_index", lambda: called.append("i"))
+    B.fetch_all(log=lambda *a: None)
+    assert B.index_stale() is False, "the index looks fresh by mtime"
+    assert called == ["c", "i"], "and it must rebuild anyway"
+
+
+def test_the_marker_is_inside_the_curated_pattern():
+    """The mechanism rests on fetch_corpus()'s allow_patterns pulling the
+    marker down with the files it describes. If it did not, every install
+    would read version 1 for ever and the failure would be SILENCE - no
+    error, just an update that never arrives.
+
+    So this asks the hub's own filter, not fnmatch: the assumption under
+    test is about huggingface_hub's behaviour, and a local re-implementation
+    of it would prove nothing.
+    """
+    filter_repo_objects = pytest.importorskip(
+        "huggingface_hub.utils").filter_repo_objects
+    kept = list(filter_repo_objects(
+        ["curated/characters.txt", "curated/CORPUS_VERSION",
+         "README.md", "other/x.txt"],
+        allow_patterns="curated/*"))
+    assert "curated/CORPUS_VERSION" in kept
+    assert "README.md" not in kept
+
+
+def test_an_update_actually_lands_and_then_stops(monkeypatch, tmp_path):
+    """The state machine, converging on real files.
+
+    Every other test here fakes fetch_corpus() as a recorder that writes
+    nothing, which proves the CALL happens and nothing about what follows.
+    This one lays the new corpus down the way a download would - files plus
+    the marker - and then checks the thing that actually matters: that the
+    install stops asking. An update that arrives but still reads as outdated
+    would re-download 296 MB on every launch, for ever.
+    """
+    _corpus(tmp_path, monkeypatch)
+    (B.CORPUS / "CORPUS_VERSION").unlink()  # v1: the pre-4.18 shape
+    B.INDEX.write_text("index built from the old corpus")
+    monkeypatch.setattr(B, "CORPUS_VERSION", 2)
+
+    def fake_download():
+        for name in B.CORPUS_FILES:
+            (B.CORPUS / name).write_text("the new corpus")
+        (B.CORPUS / "CORPUS_VERSION").write_text("2")
+
+    built = []
+
+    def fake_build():
+        built.append(1)
+        B.INDEX.write_text("index built from the new corpus")
+
+    monkeypatch.setattr(B, "fetch_weights", lambda: None)
+    monkeypatch.setattr(B, "fetch_corpus", fake_download)
+    monkeypatch.setattr(B, "build_index", fake_build)
+
+    assert B.corpus_version() == 1
+    assert B.corpus_outdated() is True
+    assert B.work_pending() is True
+
+    B.fetch_all(log=lambda *a: None)
+
+    assert B.corpus_version() == 2
+    assert B.corpus_outdated() is False
+    assert built == [1], "the index must be rebuilt from the new corpus"
+    assert B.INDEX.read_text().endswith("new corpus")
+
+    # And the next launch must do nothing at all. This is the assertion the
+    # feature lives or dies on: a version that never settles is worse than
+    # no version at all.
+    built.clear()
+    assert B.work_pending() is False
+    B.fetch_all(log=lambda *a: None)
+    assert built == []

@@ -1,4 +1,4 @@
-# ---- fetched by install.py, never committed ---------------------------------
+# ---- fetched by bootstrap.py, never committed -------------------------------
 checkpoints/
 curated/
 retrieve/*.pkl
@@ -31,5 +31,8 @@ dist/
 Thumbs.db
 
 # ---- agent scratch ----------------------------------------------------------
+# Added to the public repo by hand once already ("Agent scratch notes do not
+# belong in the public repo"). It belongs HERE, or the next export silently
+# undoes it.
 .superpowers/
 .claude/

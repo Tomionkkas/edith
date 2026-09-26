@@ -198,15 +198,15 @@ class Boot(unittest.TestCase):
     def test_a_missing_checkpoint_explains_itself(self):
         """Someone who has just cloned this needs an instruction, not a
         traceback from torch.load. It used to say 'copy it from a machine
-        that has it'; now it offers to fetch, and a non-TTY gets the retry
-        instruction instead of a prompt it cannot answer."""
+        that has it'; now it offers to fetch, and a non-TTY gets the
+        install command instead of a prompt it cannot answer."""
         term = T.Terminal("plain", ckpt=ROOT / "checkpoints" / "nope.pt")
         out = io.StringIO()
         with redirect_stdout(out):
             ok = term.boot()
         self.assertFalse(ok)
         self.assertIn("nope.pt", out.getvalue())
-        self.assertIn("run it again", out.getvalue())
+        self.assertIn("install.py", out.getvalue())
 
     def test_main_returns_nonzero_when_it_cannot_start(self):
         out = io.StringIO()
@@ -224,12 +224,20 @@ class FirstRun(unittest.TestCase):
         self._missing = T.bootstrap.missing
         self._fetch = T.bootstrap.fetch_all
         self._download_mb = T.bootstrap.download_mb
+        self._work_pending = T.bootstrap.work_pending
+        self._corpus_outdated = T.bootstrap.corpus_outdated
+        self._index_stale = T.bootstrap.index_stale
         self._isatty = sys.stdin.isatty
 
     def tearDown(self):
         T.bootstrap.missing = self._missing
         T.bootstrap.fetch_all = self._fetch
         T.bootstrap.download_mb = self._download_mb
+        # Restored, or the stubs leak onto the shared bootstrap module and
+        # the NEXT test file boots a Terminal against this test's state.
+        T.bootstrap.work_pending = self._work_pending
+        T.bootstrap.corpus_outdated = self._corpus_outdated
+        T.bootstrap.index_stale = self._index_stale
         sys.stdin.isatty = self._isatty
 
     def run_offer(self, answer="y", tty=True, gone=None, mb=810):
@@ -244,6 +252,15 @@ class FirstRun(unittest.TestCase):
         state = {"gone": gone}
         T.bootstrap.missing = lambda *_a, **_k: state["gone"]
         T.bootstrap.download_mb = lambda *_a, **_k: mb
+        # 4.18 gave offer_bootstrap() a second question - is anything STALE -
+        # and a stub for missing() alone leaves it asking the real filesystem.
+        # That made "nothing missing asks nothing" pass on a developer machine
+        # with a complete corpus and fail on a clean checkout, which is the
+        # shape the public repo has. These tests are about MISSING artefacts;
+        # staleness has its own.
+        T.bootstrap.work_pending = lambda *_a, **_k: bool(state["gone"])
+        T.bootstrap.corpus_outdated = lambda *_a, **_k: False
+        T.bootstrap.index_stale = lambda *_a, **_k: False
         self.fetched = []
 
         def fake_fetch(log=None):
@@ -294,7 +311,7 @@ class FirstRun(unittest.TestCase):
                 ok = self.term.offer_bootstrap()
         self.assertFalse(ok)
         self.assertEqual(self.fetched, [])
-        self.assertIn("run it again", out.getvalue())
+        self.assertIn("install.py", out.getvalue())
 
     def test_a_failed_fetch_explains_itself_and_stops(self):
         """FIX ROUND 1: fetch_all() used to be called unwrapped, so a
@@ -313,7 +330,7 @@ class FirstRun(unittest.TestCase):
                 ok = self.term.offer_bootstrap()
         self.assertFalse(ok)
         self.assertIn("connection reset by peer", out.getvalue())
-        self.assertIn("running EDITH again resumes", out.getvalue())
+        self.assertIn("install.py", out.getvalue())
 
     def test_a_fetch_that_leaves_something_missing_is_reported_not_trusted(self):
         """FIX ROUND 1 (reviewer finding): fetch_all() can return normally
@@ -341,7 +358,7 @@ class FirstRun(unittest.TestCase):
         ok, shown = self.run_offer(answer="n")
         self.assertFalse(ok)
         self.assertEqual(self.fetched, [])
-        self.assertIn("run it again", shown)
+        self.assertIn("install.py", shown)
 
     def test_a_non_tty_is_never_prompted(self):
         """run_cases.py drives this as a subprocess. input() on a closed stdin
@@ -356,7 +373,7 @@ class FirstRun(unittest.TestCase):
             with unittest.mock.patch("builtins.input", explode):
                 ok = self.term.offer_bootstrap()
         self.assertFalse(ok)
-        self.assertIn("run it again", out.getvalue())
+        self.assertIn("install.py", out.getvalue())
 
     def test_nothing_missing_asks_nothing(self):
         ok, shown = self.run_offer(gone=[])

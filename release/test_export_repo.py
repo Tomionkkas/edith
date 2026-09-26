@@ -16,6 +16,10 @@ spec.loader.exec_module(E)
 # This file is scanned by the tool it tests, so the developer username
 # sentinel is assembled at runtime to avoid the literal appearing here.
 USERNAME_SENTINEL = "pola" + "c"
+# Same reason: written out, either of these would be caught in this file by
+# the scan they are here to test.
+WIN_HOME = "C:" + "\\" + "Users" + "\\" + "you"      # the README placeholder
+DEV_PATH = "B:" + "\\" + "learning"                  # a real one
 
 
 def fake_tree(tmp_path):
@@ -55,7 +59,11 @@ def fake_tree(tmp_path):
     (src / "paths.py").write_text("# paths\n")
     (src / "edith_cli.py").write_text("# cli\n")
     (src / "pyproject.toml").write_text("[project]\n")
+    (src / "test_paths.py").write_text("def test_x(): pass\n")
+    (src / "install.py").write_text("# install\n")
+    (src / "install.ps1").write_text("# install ps1\n")
     (src / "test_bootstrap.py").write_text("def test_x(): pass\n")
+    (src / "test_install.py").write_text("def test_x(): pass\n")
     (src / "edith").write_text("#!/bin/bash\n")
     (src / "edith.cmd").write_text("@echo off\n")
     (src / ".gitattributes").write_text("*.py text\n")
@@ -106,8 +114,7 @@ def test_a_public_gitignore_is_written(tmp_path):
     src = fake_tree(tmp_path)
     E.export(src, tmp_path / "out")
     text = (tmp_path / "out" / ".gitignore").read_text()
-    for line in ("checkpoints/", "curated/", "retrieve/*.pkl",
-                 ".superpowers/"):
+    for line in ("checkpoints/", "curated/", "retrieve/*.pkl"):
         assert line in text
 
 
@@ -163,9 +170,6 @@ def test_every_include_entry_arrives_in_output(tmp_path):
         "tokenizer/marvel_bpe_50257.model",
         "tokenizer/marvel_bpe_50257.vocab",
         "bootstrap.py",
-        "paths.py",
-        "edith_cli.py",
-        "pyproject.toml",
         "test_bootstrap.py",
         "edith",
         "edith.cmd",
@@ -228,3 +232,129 @@ def test_developer_username_isolated(tmp_path):
     username_hits = [h for h in hits if "developer username" in h and "notes.py" in h]
     assert len(username_hits) == 1
     assert "developer username" in username_hits[0]
+
+def test_the_web_app_ships_with_its_page(tmp_path):
+    """FOUND 2026-09-26, before it shipped: the allowlist reads `infer/*.py`,
+    which takes infer/web.py and leaves infer/web/ behind. The public repo
+    would have had the server and none of the page it serves, so `edith
+    --web` would answer 404 for every file it asked for - and nothing in the
+    export would have complained.
+    """
+    src = fake_tree(tmp_path)
+    (src / "infer" / "web").mkdir(parents=True, exist_ok=True)
+    for name in ("page.html", "app.css", "app.js"):
+        (src / "infer" / "web" / name).write_text("x")
+    out = tmp_path / "out"
+    E.export(src, out)
+    for name in ("page.html", "app.css", "app.js"):
+        assert (out / "infer" / "web" / name).exists(), name
+
+
+def test_the_sidecars_ship(tmp_path):
+    """They are data, not code, so an allowlist written around *.py drops
+    them silently. Without images.json.gz every answer loses its art;
+    without legacy.json.gz the picker loses "others who have gone by this
+    name" - both degrade quietly rather than failing, which is worse.
+    """
+    src = fake_tree(tmp_path)
+    (src / "retrieve" / "images.json.gz").write_bytes(b"x")
+    (src / "retrieve" / "legacy.json.gz").write_bytes(b"x")
+    out = tmp_path / "out"
+    E.export(src, out)
+    assert (out / "retrieve" / "images.json.gz").exists()
+    assert (out / "retrieve" / "legacy.json.gz").exists()
+
+
+def test_the_packaging_layer_ships(tmp_path):
+    """FOUND 2026-09-26 by exporting into a clone of the public repo and
+    reading the diff before committing it: paths.py, edith_cli.py and
+    pyproject.toml lived ONLY in the public repo, and bootstrap.py,
+    terminal.py, search.py, resolve.py and build_names.py all load paths.py.
+    Copying the private tree over them would have left an installed EDITH
+    looking for its weights inside site-packages - and `uv tool install` with
+    no pyproject.toml to read at all.
+    """
+    src = fake_tree(tmp_path)
+    out = tmp_path / "out"
+    E.export(src, out)
+    for name in ("paths.py", "edith_cli.py", "pyproject.toml"):
+        assert (out / name).exists(), name
+
+
+def test_both_licence_files_begin_with_their_licence(tmp_path):
+    """GitHub labels a licence tab by DETECTING the text - licensee matches a
+    file that IS the licence, and a two-line preamble in front of "MIT
+    License" drops it below the threshold. Both tabs on the public repo read
+    a generic "License" because of one, and the repo showed no MIT badge at
+    all. What the preambles said is in README's "Licenses and credit" and in
+    ATTRIBUTION.md, which is where a reader looks anyway.
+    """
+    root = Path(__file__).resolve().parent.parent
+    assert (root / "LICENSE").read_text(
+        encoding="utf-8").startswith("MIT License")
+    assert (root / "LICENSE-DATA").read_text(
+        encoding="utf-8").startswith("Attribution-ShareAlike 4.0 International")
+
+
+def test_the_dead_installer_does_not_come_back(tmp_path):
+    """install.py, install.ps1 and test_install.py were DELETED publicly in
+    e903ebc - installation runs through `uv` now and all three are dead
+    paths. The allowlist still named them, so every export resurrected three
+    files the public repo had deliberately removed.
+    """
+    src = fake_tree(tmp_path)
+    out = tmp_path / "out"
+    E.export(src, out)
+    for dead in ("install.py", "install.ps1", "test_install.py"):
+        assert not (out / dead).exists(), dead
+
+
+def test_the_public_readme_survives_an_export(tmp_path):
+    """The PUBLIC repo owns README.md. Its copy carries the banner, the demo
+    gif and the uv instructions - about 80 lines the private one has never
+    had - and the export used to overwrite it wholesale with the private
+    copy, which is the developer's file, not the visitor's.
+    """
+    src = fake_tree(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "README.md").write_text("the public one\n")
+    E.export(src, out, force=True)
+    assert (out / "README.md").read_text() == "the public one\n"
+
+
+def test_the_readmes_windows_placeholder_is_not_a_leak(tmp_path):
+    """FOUND 2026-09-26 by the scan refusing a real export: the README says
+    where EDITH keeps things, and the Windows half of that sentence is a
+    drive path. It names no user, and it has been public since the repo was,
+    so the scan must read it as documentation rather than as a leak.
+    """
+    src = fake_tree(tmp_path)
+    (src / "MEASUREMENTS.md").write_text(
+        f"All of that lands in `~/.edith` (`{WIN_HOME}\\.edith` on "
+        "Windows) - one directory.\n")
+    E.export(src, tmp_path / "out")
+    assert not [h for h in E.scan(tmp_path / "out") if "MEASUREMENTS" in h]
+
+
+def test_a_real_path_on_the_same_line_is_still_caught(tmp_path):
+    """The placeholder is removed from the line, not the line from the scan."""
+    src = fake_tree(tmp_path)
+    (src / "MEASUREMENTS.md").write_text(
+        f"`{WIN_HOME}\\.edith`, which on this machine is `{DEV_PATH}\\x`\n")
+    E.export(src, tmp_path / "out")
+    hits = E.scan(tmp_path / "out")
+    assert any("MEASUREMENTS.md" in h and "absolute drive path" in h
+               for h in hits)
+
+
+def test_a_tree_with_no_readme_still_gets_one(tmp_path):
+    """Owned by the public repo is not the same as never copied: a tree that
+    has no README at all is a fresh export, not a repo with something to
+    protect, and README.md is REQUIRED - without the fallback the export
+    would refuse to finish.
+    """
+    src = fake_tree(tmp_path)
+    out = tmp_path / "out"
+    E.export(src, out)
+    assert (out / "README.md").read_text() == "public\n"

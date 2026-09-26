@@ -108,8 +108,11 @@ code you are editing rather than the installed copy:
 uv run --no-project python infer/terminal.py
 ```
 
-The first run offers to fetch the weights and corpus the same way, into the
-same `~/.edith`.
+The first run offers to fetch the weights and corpus the same way, but a
+clone keeps them beside the code - `checkpoints/`, `curated/` and
+`retrieve/index.pkl` - because that is where the training and index
+scripts write them and where every path in the repo names them. Only an
+installed EDITH uses `~/.edith`. `EDITH_HOME` overrides either.
 
 `--no-project` is not optional, and neither `uv run` without it nor
 `uv pip install -e .` will work. Both try an editable install, and hatchling

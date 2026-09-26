@@ -101,7 +101,7 @@ def discriminating(key: tuple, record: str, norm) -> frozenset:
 
 
 def select(record: str, question: str, query_key, norm,
-           max_sentences: int = MAX_SENTENCES):
+           max_sentences: int = MAX_SENTENCES, skip: int = 0):
     """Up to `max_sentences` whole sentences of `record`, or None.
 
     Two modes, and which one applies is decided by the question, not tuned:
@@ -116,6 +116,17 @@ def select(record: str, question: str, query_key, norm,
     war"). The opening sentences are returned, because a narrative's opening
     IS its summary. This is the case 4.5b's "require real overlap" rule could
     not express: there is no overlap to require.
+
+    `skip` is how a reader says "go on" (4.17). It drops that many sentences
+    the caller has already been shown - the opening in the bare branch, the
+    best-scoring ones in the specific branch - so asking twice does not read
+    the same paragraph twice. Measured in the web app: `explain in more
+    detail`, asked again, printed exactly what it had just printed, which is
+    correct and useless.
+
+    Returns None once `skip` runs past the end of the prose. A record has an
+    end, and looping back to the opening would read as the system forgetting
+    rather than as running out.
     """
     body = prose(record)
     if not body:
@@ -126,7 +137,8 @@ def select(record: str, question: str, query_key, norm,
 
     terms = discriminating(query_key(question) or (), record, norm)
     if not terms:
-        return " ".join(found[:max_sentences])
+        rest = found[skip:skip + max_sentences]
+        return " ".join(rest) if rest else None
 
     # Rarity, measured WITHIN this record. 4.5b asks for overlap with the
     # question's RARE terms, and an unweighted count is not that: asked "how
@@ -152,6 +164,14 @@ def select(record: str, question: str, query_key, norm,
     if not scored:
         return None
     scored.sort()
+    # The floor stays keyed on the BEST match in the record, not on the best
+    # of what is left: three sentences down, a weak match is still weak, and
+    # rescaling would let "go on" drift into noise.
     floor = -scored[0][0] * RELATIVE_FLOOR
+    scored = scored[skip:]
+    if not scored:
+        return None
     keep = [s for s in scored[:max_sentences] if -s[0] >= floor]
+    if not keep:
+        return None
     return " ".join(s[2] for s in sorted(keep, key=lambda s: s[1]))

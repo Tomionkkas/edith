@@ -275,7 +275,8 @@ def wants_choice(question, index, facts, resolve, doc_id, settled=None) -> bool:
 
 
 def plan(question: str, index, sft, search, disambiguate, facts,
-         resolve=None, k: int = 3, previous=None, settled=None) -> Plan:
+         resolve=None, k: int = 3, previous=None, settled=None,
+         shown=None) -> Plan:
     """The whole decision, in the form a caller can render.
 
     Wraps try_facts and build_prompt rather than reimplementing them, so the
@@ -322,13 +323,30 @@ def plan(question: str, index, sft, search, disambiguate, facts,
             and facts.wants_whole_entity(question)):
         field_rows = facts.profile_rows(index.text(doc_id)) or None
 
+    # Written by curation, read here - never inferred. `Kind:` is the one
+    # field three modules read separately ON PURPOSE (CLAUDE.md); this is a
+    # fourth READER, not a fourth copy of the rule.
+    # getattr, because half the engine tests pass a resolve stub with only
+    # the two functions they exercise - and a missing Kind must behave as
+    # pre-Kind code did, which is the rule CLAUDE.md states for all three of
+    # its readers.
+    kind_of = getattr(resolve, "kind_of", None)
+    kind = (kind_of(index.text(doc_id))
+            if kind_of and doc_id is not None else None)
+
     quoted = None
     leads = False
-    if doc_id is not None and wants_passage(question, text, field_rows):
+    if doc_id is not None and wants_passage(question, text, field_rows, kind):
         psg = _load("passages", "infer/passages.py")
+        # "go on" reads the NEXT sentences, not the opening again (4.17).
+        skip = passage_skip(question, doc_id, shown,
+                            lambda q: resolve.query_key(facts.entity_text(q)))
         quoted = psg.select(index.text(doc_id), question,
-                            resolve.query_key, resolve.norm)
-        leads = quoted is not None and passage_leads(question)
+                            resolve.query_key, resolve.norm, skip=skip)
+        if shown is not None and quoted:
+            shown[doc_id] = skip + len(psg.sentences(quoted))
+        leads = quoted is not None and passage_leads(question, text,
+                                                     field_rows, kind)
 
     if text is not None:
         # `field_rows` is computed above, with the SAME predicate try_facts
@@ -451,6 +469,12 @@ NARRATIVE_Q = re.compile(
 # worse. 4.5b's figure.
 THIN_TEXT = 80
 
+# A record whose fields cannot answer "tell me about it". An event has no
+# eye colour: its fields are reality, creators and a first appearance, all
+# bibliography, so for these kinds the STORY is the profile. Written by
+# curation and read with resolve.kind_of() - never inferred here.
+NARRATIVE_KINDS = ("event", "story arc")
+
 # A whole-entity question that yielded this many fields or fewer is thin
 # whatever its sentence weighs. The trigger 4.5b lacked: `tell me about the
 # civil war` renders 91 characters - over THIN_TEXT - out of ONE row, and
@@ -458,7 +482,7 @@ THIN_TEXT = 80
 THIN_ROWS = 1
 
 
-def passage_leads(question: str) -> bool:
+def passage_leads(question: str, text=None, rows=None, kind=None) -> bool:
     """Whether the passage should come BEFORE the answer rather than after.
 
     4.5b's append-never-substitute rule exists so a passage cannot make a
@@ -473,16 +497,50 @@ def passage_leads(question: str) -> bool:
           > The American Revolutionary War ... was the armed struggle in
             which the thirteen North American colonies rejected ...
 
-    Only for the NARRATIVE trigger. A thin profile answer is still an answer
-    to what was asked and keeps its place above the passage. The safety
-    property is untouched either way: the quote is verbatim and the model
-    never sees it.
+    REVISED 2026-09-26, from the web app where the shape is unmissable. 4.5b
+    held that a thin profile answer "is still an answer to what was asked"
+    and kept its place. For an EVENT that answer reads:
+
+        Civil War (Event) is from Earth-616. Civil War (Event) first
+        appeared in Civil War Vol 1 1.
+
+    which is the same bibliographic credit in a different hat. ONE row is
+    not a thin answer to `tell me about the civil war`, it is the absence of
+    one - and `THIN_ROWS` already names that exact question as the case it
+    was added for. Two rows or more is a profile and still leads.
+
+    The safety property is untouched either way: the quote is verbatim and
+    the model never sees it.
     """
-    return bool(not NEVER_QUOTE.search(question)
-                and NARRATIVE_Q.search(question))
+    if NEVER_QUOTE.search(question):
+        return False
+    if NARRATIVE_Q.search(question):
+        return True
+    if kind in NARRATIVE_KINDS and rows:
+        return True
+    return rows is not None and len(rows) <= THIN_ROWS
 
 
-def wants_passage(question: str, text, rows) -> bool:
+def passage_skip(question, doc_id, shown, query_key) -> int:
+    """How many sentences of this record the reader has already been given.
+
+    `shown` is to passages what `settled` is to the picker: a dict the CALLER
+    owns, keyed by doc id, that the engine reads and writes. Both renderers
+    keep one; neither needs any other state.
+
+    Only a question that names NOBODY continues - "go on", "more please",
+    "explain in more detail" all key to () since 4.17, while "what are his
+    powers" keys to ("power",) and is a fresh question about the same record.
+    A new subject, or a different record, starts from the opening.
+    """
+    if not shown or doc_id is None:
+        return 0
+    if query_key(question):
+        return 0
+    return shown.get(doc_id, 0)
+
+
+def wants_passage(question: str, text, rows, kind=None) -> bool:
     """Whether to append a quoted passage to this answer.
 
     Taste, not safety: the quote is appended, so the worst case is an
@@ -496,6 +554,11 @@ def wants_passage(question: str, text, rows) -> bool:
     if text is None:
         # The model is answering an ordinary question. Not a reason to quote.
         return False
+    # An event's profile is a bibliography however many rows it runs to, so
+    # row count cannot decide it. Measured 2026-09-26: `tell me about secret
+    # wars` renders three rows, reads as a credit, and quoted nothing.
+    if kind in NARRATIVE_KINDS and rows:
+        return True
     if len(text) < THIN_TEXT:
         return True
     return rows is not None and len(rows) <= THIN_ROWS

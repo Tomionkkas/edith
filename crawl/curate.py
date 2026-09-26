@@ -813,6 +813,83 @@ def run_phase(name):
     print(f"{name}: curated {n} pages -> {out_path} ({empty} empty skipped)")
 
 
+RECORD_SEP = "=" * 60
+
+
+def dedupe_pages(curated_dir=CURATED_DIR, log=print) -> int:
+    """One wiki page, one record. Returns how many copies were dropped.
+
+    The wiki files a page under more than one CATEGORY - All-Black is a
+    character and an item, Arakko a character and a location, American
+    Nightmare an event and a story arc - so two phases crawl it and two
+    phases curate it, and the corpus ends up with the same page twice under
+    two `Kind:` lines. Measured 2026-09-26: 52 pages, 104 records.
+
+    It is not harmless. `resolve.confidence()` dedupes by doc id, and two
+    doc ids ARE two documents however identical their subject, so `who is
+    iron man` read 1.001 against Anthony Stark's own twin and offered a menu
+    instead of answering.
+
+    The biggest block wins, which is the template that matched most of the
+    page. Checked by hand on the four cases where the loser was not obviously
+    poorer: patch.txt's copies of Doom and Stark are pre-4.11 curations with
+    no `Codename:` line at all, and every name they carried survives in the
+    winner.
+
+    A pass over the finished files, not a rule inside curation:
+    `run_phase()` handles one phase and cannot know what another claimed, and
+    a curated corpus can be assembled one phase at a time.
+
+    Records with no `Page:` line are left alone. Issues have none - 72,295 of
+    them - and two comics may legitimately share a headline.
+    """
+    files = sorted(Path(curated_dir).glob("*.txt"))
+    blocks = {}                       # path -> [block, ...]
+    best = {}                         # page -> (size, name, path, position)
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        kept = [b.strip(chr(10)) for b in text.split(RECORD_SEP) if b.strip()]
+        blocks[path] = kept
+        for i, block in enumerate(kept):
+            page = page_title_of(block)
+            if not page:
+                continue
+            # Sorted file order, then position, so a tie breaks the same way
+            # on every machine: Amara Aquilla's two copies are the same length
+            # to the byte, and dict order is not a rule.
+            here = (len(block), path.name, i)
+            there = best.get(page)
+            if there is None or (here[0], ) > (there[0], ) or (
+                    here[0] == there[0] and (here[1], here[2]) < (there[1], there[2])):
+                best[page] = here
+
+    dropped = 0
+    for path, kept in blocks.items():
+        survivors = []
+        for i, block in enumerate(kept):
+            page = page_title_of(block)
+            if page and best[page][1:] != (path.name, i):
+                dropped += 1
+                continue
+            survivors.append(block)
+        if len(survivors) != len(kept):
+            path.write_text(
+                "".join(b + chr(10) + RECORD_SEP + chr(10) * 2 for b in survivors),
+                encoding="utf-8")
+            log(f"  {path.name}: dropped {len(kept) - len(survivors)} "
+                f"duplicate page(s)")
+    return dropped
+
+
+def page_title_of(block: str) -> str:
+    """The block's `Page:` value, or "" - the same identity answer_cases.py
+    and retrieve/resolve.py key on."""
+    for line in block.split(chr(10)):
+        if line.startswith("Page: "):
+            return line[len("Page: "):].strip()
+    return ""
+
+
 def run_all():
     """Curate every raw/<name>.jsonl that exists."""
     names = sorted(
@@ -826,6 +903,10 @@ def run_all():
 
 
 def main():
+    if "--dedupe" in sys.argv:
+        dropped = dedupe_pages()
+        print(f"dropped {dropped} duplicate page(s)")
+        return
     if "--demo" in sys.argv:
         demo()
     elif "--run-all" in sys.argv:

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Everything EDITH needs that is not in git: weights, corpus, index.
 
-Imported by infer/terminal.py's first-run prompt: Terminal.boot() calls
-fetch_all() when something is missing. One module on purpose - a second
-fetcher would eventually name a different repo.
+Imported by install.py and by infer/terminal.py's first-run prompt. One
+module on purpose - two fetchers would eventually name two different repos.
 
 Nothing here writes a .pt. The published format is safetensors precisely
 because torch.load executes whatever is inside the file it opens.
@@ -17,16 +16,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# The data directory, loaded by file path like this module itself is. Constants
+# only, so re-executing it per module costs nothing. It knows both layouts:
+# beside the code in a checkout, ~/.edith for an installed command, where
+# "beside me" is a virtualenv nobody can find.
+_paths_spec = importlib.util.spec_from_file_location(
+    "edith_paths", ROOT / "paths.py")
+paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(paths)
 
 MODEL_REPO = "Tomionkkas/edith-250m"
 CORPUS_REPO = "Tomionkkas/edith-marvel-corpus"
-
-# The data directory, loaded by file path like bootstrap.py itself is - see
-# infer/terminal.py's load of this module. Constants only, so re-executing
-# it per module costs nothing.
-_paths_spec = importlib.util.spec_from_file_location("edith_paths", ROOT / "paths.py")
-paths = importlib.util.module_from_spec(_paths_spec)
-_paths_spec.loader.exec_module(paths)
 
 WEIGHTS = paths.WEIGHTS
 CONFIG_JSON = paths.CONFIG_JSON
@@ -38,6 +38,17 @@ CORPUS = paths.CORPUS
 # purpose - see download_mb() below.
 WEIGHTS_MB = 508     # fp16 weights on HuggingFace
 CORPUS_MB = 296      # curated/ corpus
+
+# What corpus this build expects. Bump it in the SAME commit that publishes a
+# new dataset, and ship the matching `curated/CORPUS_VERSION` inside that
+# dataset - `fetch_corpus()` already pulls `curated/*`, so the marker arrives
+# with the files it describes and no network call is needed to ask the
+# question. `corpus_complete()` is an existence check, so without this an
+# install keeps the corpus it first downloaded for ever: 4.14's events,
+# 4.14b's 53 recovered ones and B3 would never reach anybody, and nothing
+# would say so. index_stale() answers "the corpus on disk changed"; this
+# answers "the corpus on HF changed", which no mtime can see.
+CORPUS_VERSION = 2
 
 # The corpus files that must exist for a complete corpus. This mirrors the
 # list that retrieve/search.py:454 globs to build the index, so a future
@@ -59,7 +70,7 @@ CORPUS_FILES = (
 # Imported lazily elsewhere; bound at module level so tests can replace it.
 try:
     from huggingface_hub import hf_hub_download, snapshot_download
-except ImportError:                # before huggingface_hub is installed
+except ImportError:                       # before install.py has run
     hf_hub_download = snapshot_download = None
 
 
@@ -67,11 +78,10 @@ def _ensure_hub() -> None:
     """Bind the hub functions on first use.
 
     They are imported at module level inside a try/except so bootstrap.py can
-    be imported before huggingface_hub is installed - a bare clone that has
-    not set up its dependencies yet. If something installs the package
-    afterward in the SAME process (as the test suite simulates), the names
-    are still None: installing a package does not rebind a name that was
-    already resolved, so resolve it again here, on first use.
+    be imported before install.py has installed anything - but install.py then
+    installs huggingface_hub and calls fetch_all() in the SAME process, where
+    the names are still None. Installing a package does not rebind a name that
+    was already resolved, so resolve it again here, on first use.
 
     Only rebinds when a name is still None, so a caller (or test) that has
     already replaced hf_hub_download/snapshot_download with its own callable
@@ -84,8 +94,7 @@ def _ensure_hub() -> None:
         except ImportError as e:
             raise ImportError(
                 "huggingface_hub is required to fetch EDITH's weights/corpus "
-                "but is not installed. Run `uv tool install --force "
-                "git+https://github.com/Tomionkkas/edith`, or "
+                "but is not installed. Run install.py again, or "
                 "`py -m pip install huggingface_hub` yourself."
             ) from e
         hf_hub_download, snapshot_download = _dl, _snap
@@ -124,6 +133,44 @@ def corpus_complete() -> bool:
     return all((CORPUS / name).exists() for name in CORPUS_FILES)
 
 
+def corpus_version() -> int:
+    """The version of the corpus ON DISK.
+
+    A corpus with no marker predates the mechanism and reads as 1, NOT as
+    zero. Zero would tell every existing install to re-download - including
+    one whose corpus is NEWER than the published one, which is the shape any
+    machine that curated locally has, and overwriting that costs an hour and
+    three quarters of crawling.
+    """
+    try:
+        return int((CORPUS / "CORPUS_VERSION").read_text().strip())
+    except (OSError, ValueError):
+        return 1
+
+
+def corpus_outdated() -> bool:
+    """True when the corpus on disk is older than the one this build wants.
+
+    Strictly older: a corpus NEWER than the code is left alone, so an old
+    build never drags a new corpus backwards. An incomplete corpus is not
+    outdated - there is nothing to compare, and fetch_corpus() owns that
+    case, the same way index_stale() defers to it.
+    """
+    return corpus_complete() and corpus_version() < CORPUS_VERSION
+
+
+def work_pending(weights: Path | None = None) -> bool:
+    """Whether a launch has anything to fetch or rebuild.
+
+    FOUND 2026-09-26: `offer_bootstrap()` returns early when nothing is
+    MISSING, and `fetch_all()` is the only caller of `index_stale()` - so
+    neither a stale index nor an outdated corpus was reachable from a normal
+    launch at all. Everything present meant everything fine, whatever had
+    changed underneath.
+    """
+    return bool(missing(weights)) or corpus_outdated() or index_stale()
+
+
 def missing(weights: Path | None = None) -> list[Path]:
     """The required artefacts that are absent, in fetch order.
 
@@ -149,7 +196,7 @@ def download_mb(weights: Path | None = None) -> int:
     total = 0
     if not weights.exists():
         total += WEIGHTS_MB
-    if not corpus_complete():
+    if not corpus_complete() or corpus_outdated():
         total += CORPUS_MB
     return total
 
@@ -166,9 +213,7 @@ def fetch_weights() -> None:
 
 def fetch_corpus() -> None:
     """allow_patterns keeps the `curated/` prefix, so local_dir is the data
-    directory itself and the corpus lands in CORPUS. Passing ROOT here put it
-    in the clone while CORPUS read from the data dir - the index build then
-    failed on a corpus that had downloaded perfectly well."""
+    directory itself and the files land in CORPUS under it."""
     _ensure_hub()
     snapshot_download(repo_id=CORPUS_REPO, repo_type="dataset",
                       local_dir=str(paths.HOME), allow_patterns="curated/*")
@@ -271,13 +316,24 @@ def index_stale() -> bool:
 def fetch_all(log=print) -> None:
     """Idempotent: each step tests for its own output first, and the hub
     cache makes a repeated download free."""
-    migrate_legacy(log)
     if not WEIGHTS.exists():
         log("  weights ...")
         fetch_weights()
+    refetched = False
     if not corpus_complete():
         log("  corpus ...")
         fetch_corpus()
-    if index_stale():
+        refetched = True
+    elif corpus_outdated():
+        log(f"  corpus v{corpus_version()} -> v{CORPUS_VERSION} ...")
+        fetch_corpus()
+        refetched = True
+    # `refetched or` and not `index_stale()` alone: the staleness test is a
+    # MTIME comparison, and nothing here knows what the hub writes for the
+    # files it lays down. If it preserved an older timestamp the index would
+    # read as fresh and the answer would come from a new corpus through an
+    # index built from the old one - worse than not updating at all. Having
+    # just replaced the corpus is proof enough on its own.
+    if refetched or index_stale():
         log("  index (~30 s) ...")
         build_index()

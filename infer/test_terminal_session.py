@@ -3,7 +3,6 @@
 `run_cases.py` proved the point - a unit test that calls the engine directly
 cannot see that an open menu was eating turns before they reached it.
 """
-import importlib.util
 import os
 import subprocess
 import sys
@@ -11,13 +10,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-_paths_spec = importlib.util.spec_from_file_location(
-    "edith_paths", ROOT / "paths.py")
-paths = importlib.util.module_from_spec(_paths_spec)
-_paths_spec.loader.exec_module(paths)
-
-CKPT = paths.WEIGHTS
-INDEX = paths.INDEX
+CKPT = ROOT / "checkpoints" / "model.safetensors"
+INDEX = ROOT / "retrieve" / "index.pkl"
 
 
 def session(*lines, timeout=300):
@@ -27,6 +21,15 @@ def session(*lines, timeout=300):
         input="".join(l + "\n" for l in lines) + "/quit\n",
         capture_output=True, text=True, timeout=timeout,
         encoding="utf-8", errors="replace", cwd=str(ROOT))
+    # A session that CRASHED fails every assertion below as a missing
+    # substring - which reads as a wrong ANSWER and sends you looking for
+    # one. On 2026-09-26 two of these failed in a full run, passed alone,
+    # and were never explained, because only the one-line summary was ever
+    # read and the traceback is on stderr. Say what actually happened.
+    if proc.returncode != 0 or "Traceback (most recent call last)" in proc.stderr:
+        raise AssertionError(
+            f"the session did not survive (exit {proc.returncode}):"
+            + os.linesep + proc.stderr[-2000:])
     return proc.stdout, proc.stderr
 
 

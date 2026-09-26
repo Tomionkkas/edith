@@ -1,0 +1,106 @@
+<!doctype html>
+<!-- The structure is the approved comps in
+     docs/superpowers/specs/2026-09-26-web-app/. Change them first, then
+     this; a visual difference between the two is a bug in this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Fandom's CDN refuses a hotlink that carries a Referer: with
+     "http://127.0.0.1:8420/" it returns a 1,976-byte 404 placeholder, with
+     none it serves the file. Measured both ways 2026-09-26. -->
+<meta name="referrer" content="no-referrer">
+<title>EDITH</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&amp;family=Archivo:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- the cold open: the wall of covers, the mark, the ask box -->
+<section class="cold" id="cold">
+  <div class="wall" id="wall" aria-hidden="true"></div>
+  <img class="cold-hero" id="cold-hero" alt="" aria-hidden="true">
+  <div class="cold-veil" aria-hidden="true"></div>
+  <div class="cold-copy">
+    <span class="eyebrow">A Marvel model, trained from scratch</span>
+    <h1 class="mark">EDITH</h1>
+    <span class="rule"></span>
+    <p class="lede">
+      <span id="record-count">202,207</span> records of the Marvel Database,
+      indexed on your machine. It answers from the page, quotes it, and shows
+      you the art that goes with the record it used.
+    </p>
+    <form class="ask cold-ask" id="cold-form">
+      <label class="visually-hidden" for="cold-input">Ask EDITH a question</label>
+      <input id="cold-input" type="text" name="question" autocomplete="off"
+             placeholder="ask something" required>
+      <button type="submit">Ask it something</button>
+    </form>
+    <button type="button" class="resume" id="resume" hidden></button>
+  </div>
+</section>
+
+<!-- the answer: transcript on the left, the record that answered on the right -->
+<main class="app" id="app" hidden>
+  <div class="left">
+    <header class="bar">
+      <span class="wordmark">EDITH</span>
+      <span class="dot" aria-hidden="true"></span>
+      <span class="mono meta" id="bar-meta">202,207 RECORDS &middot; LOCAL</span>
+      <button type="button" class="bar-btn" id="clear-history"
+              title="Forget this session">Clear</button>
+    </header>
+
+    <div class="transcript" id="transcript"></div>
+
+    <form class="ask" id="ask-form">
+      <label class="visually-hidden" for="ask-input">Ask EDITH a question</label>
+      <input id="ask-input" type="text" name="question" autocomplete="off"
+             placeholder="ask something" required>
+      <button type="submit">Ask</button>
+    </form>
+  </div>
+
+  <aside class="right" id="right" hidden></aside>
+</main>
+
+<!-- the picker: the choices as art, wider than the record column -->
+<section class="picker" id="picker" hidden>
+  <header class="bar">
+    <span class="wordmark">EDITH</span>
+    <span class="dot" aria-hidden="true"></span>
+    <span class="mono meta">202,207 RECORDS &middot; LOCAL</span>
+  </header>
+  <div class="picker-body">
+    <div class="picker-head">
+      <div class="picker-head-row">
+        <div class="picker-asked">
+          <span class="mono label">YOU</span>
+          <span class="asked" id="picker-question"></span>
+        </div>
+        <button type="button" class="back" id="picker-back">Ask something else</button>
+      </div>
+      <h2 class="picker-title" id="picker-title"></h2>
+      <p class="picker-note" id="picker-note"></p>
+    </div>
+
+    <div class="cards-wrap">
+      <section class="group" id="group-variants">
+        <h3 class="group-head" id="variants-head"></h3>
+        <div class="cards" id="cards"></div>
+      </section>
+      <section class="group" id="group-others" hidden>
+        <h3 class="group-head">Others who have gone by this name</h3>
+        <p class="group-note">A different character, not another reality of
+          the same one.</p>
+        <div class="cards" id="others"></div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

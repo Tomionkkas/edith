@@ -28,7 +28,6 @@ from collections import defaultdict
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-
 # The data directory, loaded by file path like bootstrap.py itself is - see
 # bootstrap.py. Constants only, so re-executing it per module costs nothing.
 _paths_spec = importlib.util.spec_from_file_location(
@@ -94,6 +93,9 @@ happen happened happens occur occurred occurs
 variant variants version versions incarnation incarnations
 he she it they him her them his hers their theirs its this that these those
 anything everything something really actually exactly just like
+not no nor again then now go going went try tried think thought
+dont doesnt didnt cant wont isnt arent nope yes yeah ok okay sure
+ask asked asking else i right wrong s
 """.split())
 
 # "him" IS Adam Warlock and "he" IS the High Evolutionary, so stripping them
@@ -101,9 +103,31 @@ anything everything something really actually exactly just like
 # stripping empties it, so "who is Him" still resolves - while "explain his
 # powers" stops keying on ("his",) and reaching whoever owns that alias.
 
+# The second block is conversation, added 2026-09-26 after the web app made
+# the cost visible: a wrong turn there swaps the whole record panel. 9 of 16
+# ordinary follow-ups resolved to a record - "this does not explain his
+# powers" keyed on ("not",) and found Exo-Mind, "no that is wrong" found
+# Wrong (Soldiers of Misfortune), "and then what" found Then (Earth-616).
+#
+# Those ARE records, and stripping the words costs reaching them by name in
+# a sentence. The trade is not symmetrical: four obscure records against
+# every conversational turn in every session landing somewhere random. A
+# bare `then` still resolves, because query_key falls back to the unstripped
+# query when stripping empties it.
+#
+# `s` is not a word, it is the possessive that survives normalisation:
+# `wolverine's powers` keyed ("wolverine", "s", "power").
+#
 # NOT in the list: power, powers, name, man, woman, thing. They look like
 # scaffolding and are parts of real names - Power Man, The Thing - and
 # stripping them would break the lookups the corpus exists to answer.
+# `right` and `wrong` ARE in the list and it costs two records: Right and
+# Wrong (Soldiers of Misfortune) stop being reachable inside a sentence,
+# though a bare `right` still finds one. Two obscure records against "no
+# that is wrong" landing on a character every time it is typed.
+#
+# NOT in it, judged the other way: never (Never Queen), sense (Danger
+# Sense), better, worse, clear.
 
 
 def norm(text: str) -> tuple:
@@ -829,10 +853,23 @@ def confidence(names: dict, query: str, known_words=None) -> float:
     function gates on it, deliberately deferred - see docs/PHASE-4-ENDGAME.md
     item 1, whose measurement (11 of 1,274 sampled multi-token names rank a
     different record here than resolve() returns, `lizard` among them) is
-    that work's first input, not a footnote. Where resolve() and rivals()
-    only ever need the single best entry per candidate name (entries are
-    stored best-first), this needs the runner-up too, so it scores every
-    entry under every matching name, not just entries[0].
+    that work's first input, not a footnote.
+
+    4.15 closed the other half of that mismatch instead, at the bottom of
+    this function: the top two are compared only among records that hold the
+    name with the SAME authority, so an alias or codename holder no longer
+    contests the record the name belongs to. Reading `entries[0]` only - the
+    obvious way to make this function see exactly what resolve() returns -
+    was measured and REJECTED: a same-name rival is stored as entries[1..] of
+    the one name, so that is the only place the picker can see the ambiguity
+    it exists for, and dropping it answered `who is ghost rider`, `who is
+    ant-man`, `who is hawkeye` and `who is the human torch` outright
+    (must-offer 6/7 -> 1/7). Tables in docs/HANDOFF.md.
+
+    Where resolve() and rivals() only ever need the single best entry per
+    candidate name (entries are stored best-first), this needs the runner-up
+    too, so it scores every entry under every matching name, not just
+    entries[0].
 
     That is exactly why the top two must be deduped by doc id before being
     compared: a record is reachable under several names - its headline and
@@ -884,10 +921,19 @@ def confidence(names: dict, query: str, known_words=None) -> float:
             cand = rank(main, primary, size, tier, doc_id, famous)
             prev = best_by_doc.get(doc_id)
             if prev is None or cand > prev[0]:
-                best_by_doc[doc_id] = (cand, size)
+                best_by_doc[doc_id] = (cand, size, primary)
     if len(best_by_doc) < 2:
         return float("inf")
-    (_, best_size), (_, second_size) = sorted(
-        best_by_doc.values(), key=lambda cand_size: cand_size[0], reverse=True
-    )[:2]
+    ranked = sorted(best_by_doc.values(),
+                    key=lambda entry: entry[0], reverse=True)
+    # 4.11's rule, applied one function later: a record that holds the name
+    # as a CODENAME or an ALIAS is not a rival to the record the name IS.
+    # rank() already puts provenance above size, so resolve() returns the
+    # identity holder whatever the sizes say - contesting it against a
+    # codename holder measured an ambiguity that could not exist.
+    if ranked[0][2] == PROV_IDENTITY:
+        ranked = [entry for entry in ranked if entry[2] == PROV_IDENTITY]
+    if len(ranked) < 2:
+        return float("inf")
+    (_, best_size, _), (_, second_size, _) = ranked[:2]
     return best_size / second_size if second_size else float("inf")

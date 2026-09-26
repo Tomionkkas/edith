@@ -35,12 +35,7 @@ def _load(name, rel):
 R = _load("reference", "infer/reference.py")
 search = _load("search", "retrieve/search.py")
 
-_paths_spec = importlib.util.spec_from_file_location(
-    "edith_paths", ROOT / "paths.py")
-paths = importlib.util.module_from_spec(_paths_spec)
-_paths_spec.loader.exec_module(paths)
-
-INDEX = paths.INDEX
+INDEX = ROOT / "retrieve" / "index.pkl"
 
 
 @unittest.skipUnless(INDEX.exists(), "index.pkl not built")

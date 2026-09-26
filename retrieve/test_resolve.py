@@ -660,6 +660,61 @@ class RivalsUnknownWordGuard(unittest.TestCase):
         self.assertEqual(R.rivals(self.names, "moon knight fist"), 1)
 
 
+class ConversationalNoise(unittest.TestCase):
+    """A complaint is not a lookup.
+
+    MEASURED 2026-09-26 in the web app, where a wrong turn swaps the whole
+    record panel and is impossible to miss: 9 of 16 ordinary follow-ups
+    resolved to a record. "this does not explain his powers" keyed on
+    ("not",) and landed on Exo-Mind; "no that is wrong" found Wrong
+    (Soldiers of Misfortune); "and then what" found Then (Earth-616).
+
+    Those ARE records, which is the trap QUERY_NOISE's own note warns about
+    - but the trade is not symmetrical. Reaching four obscure records by
+    typing their name is worth less than every conversational turn in every
+    session landing somewhere random, and the harnesses measure the cost.
+    """
+
+    def setUp(self):
+        ix = FakeIndex([
+            rec("Wolverine", full="James Howlett", pad=900),
+            rec("Then", pad=40),
+            rec("Wrong", pad=40),
+        ])
+        self.names = R.build(ix)
+
+    def test_a_complaint_names_nobody(self):
+        for line in ("no that is wrong",
+                     "and then what",
+                     "nope try again",
+                     "i dont think that is right",
+                     "can you explain it again",
+                     "go on"):
+            self.assertEqual(R.query_key(line), (), line)
+
+    def test_a_complaint_that_ends_on_a_real_name_still_does(self):
+        """The limit, stated rather than hidden: `power` is deliberately NOT
+        noise - Power Man is a character - so "this does not explain his
+        powers" still keys on ("power",) and resolves. Same family as
+        facts.py:67's species intent. Stripping `power` would cost more than
+        it saves."""
+        self.assertEqual(R.query_key("this does not explain his powers"),
+                         ("power",))
+
+    def test_a_real_question_still_names_somebody(self):
+        self.assertEqual(R.query_key("who is wolverine"), ("wolverine",))
+        # The possessive `s` is stripped too: it is not a word, it is what
+        # normalisation leaves behind.
+        self.assertEqual(R.query_key("what are wolverine's powers"),
+                         ("wolverine", "power"))
+
+    def test_a_bare_name_survives_the_fallback(self):
+        """query_key falls back to the unstripped query when stripping
+        empties it, so a record actually CALLED Then is still reachable by
+        asking for it alone."""
+        self.assertIsNotNone(R.resolve(self.names, "then"))
+
+
 class Confidence(unittest.TestCase):
     """The size margin between the best candidate record and the runner-up.
 
@@ -734,6 +789,45 @@ class Confidence(unittest.TestCase):
         # Without dedup this reads 1.0 (doc 0 vs itself). Deduped, it is
         # doc 0 (900 chars) against the genuinely different doc 1 (50 chars).
         self.assertGreater(got, 5)
+
+
+    def test_a_name_held_as_a_codename_is_not_a_rival_to_whose_name_it_is(self):
+        """FINDING 2026-09-20, the picker's root: confidence() contested
+        records resolve() cannot return.
+
+        Measured live: `who is wolverine` read 1.43 and offered a menu,
+        because Akihiro (96,637 characters) and Laura Kinney (83,080) both
+        carry "Wolverine" on their `Codename:` line while James Howlett
+        (138,242) IS Wolverine. resolve() ranks provenance above size and
+        returns Howlett every time, so the two "rivals" could never have been
+        the answer - they existed only to make the answer look uncertain.
+
+        The rule is 4.11's, applied one function later: where the top
+        candidate holds the name as its IDENTITY, a codename or alias holder
+        is not a rival to it. Two identity holders still contest each other,
+        which is what `test_two_evenly_matched_records_give_a_ratio_near_one`
+        above pins - the picker must keep working for `who is ghost rider`.
+        """
+        ix = FakeIndex([
+            rec("Wolverine", full="James Howlett", pad=2000),
+            rec("Hellverine", full="Akihiro", pad=1400,
+                extra="Codename: Wolverine"),
+        ])
+        got = R.confidence(R.build(ix), "wolverine")
+        # 2000/1400 = 1.43 before the gate, which is under CONFIDENCE_TO_ASK.
+        self.assertEqual(got, float("inf"))
+
+    def test_identity_holders_still_contest_each_other(self):
+        """The gate above must not switch the picker off. Johnny Blaze and
+        Danny Ketch are both headlined Ghost Rider and both hold it as
+        identity; a reader asking `who is ghost rider` means one of them and
+        there is no way to tell which."""
+        ix = FakeIndex([
+            rec("Ghost Rider", full="Johnathon Blaze", pad=2000),
+            rec("Ghost Rider", full="Daniel Ketch", pad=1400),
+        ])
+        got = R.confidence(R.build(ix), "ghost rider")
+        self.assertLess(got, 3)
 
 
 class ConfidenceKnownWordsParameter(unittest.TestCase):

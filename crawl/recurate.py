@@ -11,4 +11,9 @@ t0 = time.time()
 for p in PHASES:
     cu.run_phase(p)
     sys.stdout.flush()
+# One wiki page can be filed under two categories, so two phases curate it.
+# run_phase() cannot see that; this pass can, and it runs once every phase
+# has had its say.
+dropped = cu.dedupe_pages()
+print(f"deduped {dropped} page(s) curated more than once")
 print(f"\nre-curated all Fandom phases in {(time.time()-t0)/60:.1f} min")

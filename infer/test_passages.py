@@ -199,6 +199,41 @@ The team fought hard to kill the invaders in the first year of their run. Later 
         self.assertNotIn("fought hard", got)
 
 
+class GoingOn(unittest.TestCase):
+    """`explain in more detail` asked again must not re-read the opening.
+
+    MEASURED 2026-09-26 in the web app: asking twice printed the SAME three
+    sentences, because a question naming nobody takes the bare-narrative
+    branch and that branch returns the record's opening. Identical input,
+    identical output - correct, and useless as a conversation.
+    """
+
+    def test_skip_moves_past_what_was_already_quoted(self):
+        first = select("what happened in the civil war")
+        second = select("what happened in the civil war", skip=3)
+        self.assertTrue(first)
+        self.assertTrue(second)
+        self.assertNotIn(second.split(".")[0], first)
+
+    def test_running_out_of_record_says_nothing(self):
+        """A record has an end. Looping back to the opening would be the
+        worst of the options - it reads as the system forgetting."""
+        self.assertIsNone(select("what happened in the civil war", skip=99))
+
+    def test_skip_zero_is_what_it_always_was(self):
+        self.assertEqual(select("what happened in the civil war"),
+                         select("what happened in the civil war", skip=0))
+
+    def test_a_specific_ask_skips_the_sentences_it_already_showed(self):
+        """The scored branch moves on too: the second-best match, not the
+        best one again."""
+        first = select("how did nitro explode", skip=0)
+        second = select("how did nitro explode", skip=1)
+        self.assertTrue(first)
+        if second is not None:
+            self.assertNotEqual(first, second)
+
+
 class WhenToSayNothing(unittest.TestCase):
     """Silence is a valid answer. A passage is appended, so a wrong one is
     noise on top of a correct answer - but noise is still a cost."""
